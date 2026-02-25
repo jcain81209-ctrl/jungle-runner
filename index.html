@@ -1,67 +1,648 @@
- <!DOCTYPE html>
--<html>
+- <!DOCTYPE html>
+--<html>
+-+<html lang="en">
+- <head>
+-+<meta charset="UTF-8" />
+-+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+- <title>Jungle Runner Engine Rebuild</title>
+- <style>
+--body { margin:0; overflow:hidden; background:black; }
+--canvas { display:block; margin:auto; }
+-+  :root { color-scheme: dark; }
+-+  * { box-sizing: border-box; }
+-+  body {
+-+    margin: 0;
+-+    min-height: 100vh;
+-+    display: grid;
+-+    place-items: center;
+-+    background: radial-gradient(circle at 50% 8%, #23532f, #0b120d 70%);
+-+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+-+  }
+-+  canvas {
+-+    display: block;
+-+    width: min(96vw, 1200px);
+-+    height: auto;
+-+    border: 2px solid rgba(255,255,255,0.2);
+-+    border-radius: 14px;
+-+    box-shadow: 0 24px 80px rgba(0,0,0,0.62);
+-+  }
+- </style>
+- </head>
+- <body>
+--<canvas id="game"></canvas>
+-+<canvas id="game" width="960" height="540"></canvas>
+- <script>
+--
+- const canvas = document.getElementById("game");
+- const ctx = canvas.getContext("2d");
+- 
+--canvas.width = 800;
+--canvas.height = 600;
+-+const config = {
+-+  horizon: 98,
+-+  cameraDepth: 420,
+-+  roadWidth: 760,
+-+  laneCount: 3,
+-+  segmentLength: 120,
+-+  drawDistance: 5200,
+-+  initialSpeed: 450,
+-+  maxSpeed: 980,
+-+  accel: 92,
+-+  spawnMin: 780,
+-+  spawnMax: 1320,
+-+  playerWorldZ: 80,
+-+};
+- 
+--/* =========================
+--   CAMERA + WORLD SETTINGS
+--========================= */
+-+const lanes = [-1, 0, 1];
+- 
+--const horizon = 150;
+--const cameraDepth = 300;
+--const roadWidth = 600;
+--const segmentLength = 200;
+-+const imagePaths = {
+-+  background: "assets/background.png",
+-+  road: "assets/road.png",
+-+  player: "assets/player.png",
+-+  tree: "assets/tree.png",
+-+  wall: "assets/wall.png",
+-+  gap: "assets/gap.png",
+-+  coin: "assets/coin.png",
+-+  magnet: "assets/magnet.png",
+-+  shield: "assets/shield.png",
+-+};
+- 
+--let speed = 8;
+--let score = 0;
+-+const images = {};
+-+const imageStatus = {};
+-+
+-+function loadAssets(paths) {
+-+  const jobs = Object.entries(paths).map(([key, src]) => new Promise((resolve) => {
+-+    const img = new Image();
+-+    img.onload = () => {
+-+      images[key] = img;
+-+      imageStatus[key] = "loaded";
+-+      resolve();
+-+    };
+-+    img.onerror = () => {
+-+      imageStatus[key] = "failed";
+-+      resolve();
+-+    };
+-+    img.src = src;
+-+  }));
+-+  return Promise.all(jobs);
+-+}
+- 
+--/* =========================
+--   PLAYER (fixed depth)
+--========================= */
+-+const game = {
+-+  running: true,
+-+  score: 0,
+-+  coins: 0,
+-+  distance: 0,
+-+  speed: config.initialSpeed,
+-+  best: Number(localStorage.getItem("jungleRunnerBest") || 0),
+-+  nextSpawnZ: 1400,
+-+  magnetTime: 0,
+-+  shieldTime: 0,
+-+};
+- 
+--let player = {
+--  lane: 0,
+--  z: 0,
+-+const player = {
+-+  laneIndex: 1,
+-+  laneVisual: 0,
+-+  laneSwitchSpeed: 9,
+-   y: 0,
+-   velocityY: 0,
+--  gravity: 0.6,
+--  jumpPower: -12,
+--  grounded: true
+-+  jumpVelocity: -1060,
+-+  gravity: 2500,
+-+  jumpCut: 0.44,
+-+  grounded: true,
+-+  invulnTime: 1,
+- };
+- 
+--const lanes = [-1, 0, 1];
+-+const entities = [];
+-+let previousTime = performance.now();
+- 
+--/* =========================
+--   OBJECTS
+--========================= */
+--
+--let obstacles = [];
+--
+--/* =========================
+--   SPAWN
+--========================= */
+--
+--function spawnObstacle(){
+--  obstacles.push({
+--    lane: lanes[Math.floor(Math.random()*3)],
+--    z: 2000
+--  });
+-+function randomRange(min, max) { return min + Math.random() * (max - min); }
+-+function approach(a, b, amount) {
+-+  if (a < b) return Math.min(a + amount, b);
+-+  if (a > b) return Math.max(a - amount, b);
+-+  return a;
+- }
+- 
+--/* =========================
+--   PERSPECTIVE FUNCTION
+--========================= */
+--
+--function project(x, z){
+--
+--  const scale = cameraDepth / (cameraDepth + z);
+--
+--  const screenX = canvas.width/2 + x * scale;
+--  const screenY = horizon + (z * scale);
+--
+--  return { scale, screenX, screenY };
+-+function project(worldX, relZ) {
+-+  const safeZ = Math.max(relZ, -config.cameraDepth + 1);
+-+  const scale = config.cameraDepth / (config.cameraDepth + safeZ);
+-+  return {
+-+    scale,
+-+    x: canvas.width * 0.5 + worldX * scale,
+-+    y: config.horizon + safeZ * scale,
+-+  };
+- }
+- 
+--/* =========================
+--   DRAW ROAD
+--========================= */
+--
+--function drawRoad(){
+-+function laneOffset(laneValue) {
+-+  return laneValue * (config.roadWidth / config.laneCount);
+-+}
+- 
+--  for(let z=0; z<2000; z+=segmentLength){
+-+function spawnEntity(type, lane, worldZ, variant = "") {
+-+  entities.push({ type, lane, worldZ, variant, collected: false });
+-+}
+- 
+--    const p1 = project(-roadWidth/2, z);
+--    const p2 = project( roadWidth/2, z);
+-+function spawnPattern() {
+-+  const lane = lanes[Math.floor(Math.random() * lanes.length)];
+- 
+--    const p3 = project(-roadWidth/2, z+segmentLength);
+--    const p4 = project( roadWidth/2, z+segmentLength);
+-+  const obstacleRoll = Math.random();
+-+  if (obstacleRoll < 0.45) spawnEntity("obstacle", lane, game.nextSpawnZ, "tree");
+-+  else if (obstacleRoll < 0.75) spawnEntity("obstacle", lane, game.nextSpawnZ, "wall");
+-+  else spawnEntity("obstacle", lane, game.nextSpawnZ, "gap");
+- 
+--    ctx.fillStyle = (Math.floor(z/segmentLength)%2===0) ? "#444" : "#555";
+-+  if (Math.random() > 0.15) {
+-+    const coinLane = lanes[Math.floor(Math.random() * lanes.length)];
+-+    const count = Math.floor(randomRange(3, 7));
+-+    for (let i = 0; i < count; i++) {
+-+      spawnEntity("coin", coinLane, game.nextSpawnZ + 140 + i * 95);
+-+    }
+-+  }
+- 
+--    ctx.beginPath();
+--    ctx.moveTo(p1.screenX, p1.screenY);
+--    ctx.lineTo(p2.screenX, p2.screenY);
+--    ctx.lineTo(p4.screenX, p4.screenY);
+--    ctx.lineTo(p3.screenX, p3.screenY);
+--    ctx.closePath();
+--    ctx.fill();
+-+  if (Math.random() > 0.7) {
+-+    const pLane = lanes[Math.floor(Math.random() * lanes.length)];
+-+    const variant = Math.random() > 0.5 ? "magnet" : "shield";
+-+    spawnEntity("powerup", pLane, game.nextSpawnZ + 250, variant);
+-   }
+-+
+-+  game.nextSpawnZ += randomRange(config.spawnMin, config.spawnMax);
+- }
+- 
+--/* =========================
+--   UPDATE PLAYER
+--========================= */
+-+function resetGame() {
+-+  game.running = true;
+-+  game.score = 0;
+-+  game.coins = 0;
+-+  game.distance = 0;
+-+  game.speed = config.initialSpeed;
+-+  game.nextSpawnZ = 1400;
+-+  game.magnetTime = 0;
+-+  game.shieldTime = 0;
+-+
+-+  entities.length = 0;
+-+
+-+  player.laneIndex = 1;
+-+  player.laneVisual = 0;
+-+  player.y = 0;
+-+  player.velocityY = 0;
+-+  player.grounded = true;
+-+  player.invulnTime = 1.2;
+-+
+-+  while (game.nextSpawnZ < config.drawDistance) spawnPattern();
+-+}
+- 
+--function updatePlayer(){
+-+function updatePlayer(dt) {
+-+  const laneTarget = lanes[player.laneIndex];
+-+  player.laneVisual = approach(player.laneVisual, laneTarget, player.laneSwitchSpeed * dt);
+- 
+--  player.velocityY += player.gravity;
+--  player.y += player.velocityY;
+-+  player.velocityY += player.gravity * dt;
+-+  player.y += player.velocityY * dt;
+- 
+--  if(player.y >= 0){
+-+  if (player.y >= 0) {
+-     player.y = 0;
+-     player.velocityY = 0;
+-     player.grounded = true;
+-   }
+-+
+-+  player.invulnTime = Math.max(0, player.invulnTime - dt);
+- }
+- 
+--/* =========================
+--   DRAW PLAYER
+--========================= */
+-+function hitObstacle(entity) {
+-+  const isGap = entity.variant === "gap";
+-+  const canIgnore = game.shieldTime > 0 || player.invulnTime > 0;
+-+  const jumped = player.y < -30;
+-+  if (isGap ? !jumped : jumped) return false;
+-+  return !canIgnore;
+-+}
+- 
+--function drawPlayer(){
+-+function updateWorld(dt) {
+-+  if (!game.running) return;
+- 
+--  const laneOffset = lanes[player.lane] * (roadWidth/3);
+--  const p = project(laneOffset, 0);
+-+  game.speed = Math.min(config.maxSpeed, game.speed + config.accel * dt);
+-+  const dz = game.speed * dt;
+-+  game.distance += dz;
+-+  game.score += dz * 0.1;
+-+  game.magnetTime = Math.max(0, game.magnetTime - dt);
+-+  game.shieldTime = Math.max(0, game.shieldTime - dt);
+- 
+--  const width = 40;
+--  const height = 80;
+-+  const spawnTarget = game.distance + config.drawDistance;
+-+  while (game.nextSpawnZ < spawnTarget) spawnPattern();
+- 
+--  ctx.fillStyle = "red";
+--  ctx.fillRect(
+--    p.screenX - width/2,
+--    p.screenY - height + player.y,
+--    width,
+--    height
+--  );
+--}
+-+  for (const e of entities) {
+-+    if (e.collected) continue;
+-+
+-+    const relZ = e.worldZ - game.distance;
+-+
+-+    if (e.type === "coin" && game.magnetTime > 0) {
+-+      const laneDiff = Math.abs(e.lane - player.laneVisual);
+-+      if (relZ < 430 && laneDiff < 1.6) {
+-+        e.lane = approach(e.lane, player.laneVisual, dt * 3.6);
+-+      }
+-+    }
+-+
+-+    const nearPlayer = relZ < config.playerWorldZ + 60 && relZ > config.playerWorldZ - 72;
+-+    const laneMatch = Math.abs(e.lane - player.laneVisual) < 0.46;
+-+    if (!nearPlayer || !laneMatch) continue;
+-+
+-+    if (e.type === "coin") {
+-+      e.collected = true;
+-+      game.coins += 1;
+-+      game.score += 60;
+-+    } else if (e.type === "powerup") {
+-+      e.collected = true;
+-+      if (e.variant === "magnet") game.magnetTime = Math.max(game.magnetTime, 7.5);
+-+      if (e.variant === "shield") game.shieldTime = Math.max(game.shieldTime, 6.2);
+-+    } else if (e.type === "obstacle" && hitObstacle(e)) {
+-+      game.running = false;
+-+      game.best = Math.max(game.best, Math.floor(game.score));
+-+      localStorage.setItem("jungleRunnerBest", String(game.best));
+-+    }
+-+  }
+- 
+--/* =========================
+--   UPDATE OBSTACLES
+--========================= */
+-+  for (let i = entities.length - 1; i >= 0; i--) {
+-+    const relZ = entities[i].worldZ - game.distance;
+-+    if (entities[i].collected || relZ < -400) entities.splice(i, 1);
+-+  }
+-+}
+- 
+--function updateObstacles(){
+-+function imageReady(key) {
+-+  return imageStatus[key] === "loaded" && images[key] && images[key].naturalWidth > 0;
+-+}
+- 
+--  obstacles.forEach((o,i)=>{
+-+function drawSprite(key, x, y, w, h, fallback = "#888") {
+-+  if (imageReady(key)) {
+-+    ctx.drawImage(images[key], x, y, w, h);
+-+  } else {
+-+    ctx.fillStyle = fallback;
+-+    ctx.fillRect(x, y, w, h);
+-+  }
+-+}
+- 
+--    o.z -= speed;
+-+function drawSky() {
+-+  if (imageReady("background")) {
+-+    drawSprite("background", 0, 0, canvas.width, canvas.height * 0.66);
+-+  } else {
+-+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.7);
+-+    grad.addColorStop(0, "#4ab26d");
+-+    grad.addColorStop(1, "#1a3a28");
+-+    ctx.fillStyle = grad;
+-+    ctx.fillRect(0, 0, canvas.width, canvas.height * 0.7);
+-+  }
+-+  ctx.fillStyle = "rgba(7,14,9,0.72)";
+-+  ctx.fillRect(0, config.horizon + 240, canvas.width, canvas.height);
+-+}
+- 
+--    const laneOffset = o.lane * (roadWidth/3);
+--    const p = project(laneOffset, o.z);
+-+function drawRoad() {
+-+  const startZ = Math.floor(game.distance / config.segmentLength) * config.segmentLength;
+-+  const endZ = startZ + config.drawDistance;
+- 
+--    const size = 60 * p.scale;
+-+  for (let worldZ = startZ; worldZ < endZ; worldZ += config.segmentLength) {
+-+    const relNear = worldZ - game.distance;
+-+    const relFar = worldZ + config.segmentLength - game.distance;
+- 
+--    ctx.fillStyle="green";
+--    ctx.fillRect(
+--      p.screenX - size/2,
+--      p.screenY - size,
+--      size,
+--      size
+--    );
+-+    const p1 = project(-config.roadWidth * 0.5, relNear);
+-+    const p2 = project(config.roadWidth * 0.5, relNear);
+-+    const p3 = project(-config.roadWidth * 0.5, relFar);
+-+    const p4 = project(config.roadWidth * 0.5, relFar);
+- 
+--    // Collision
+--    if(o.z < 100 && o.z > -50){
+--      if(o.lane === lanes[player.lane] && player.y === 0){
+--        alert("Game Over! Score: "+score);
+--        location.reload();
+--      }
+-+    ctx.save();
+-+    ctx.beginPath();
+-+    ctx.moveTo(p1.x, p1.y);
+-+    ctx.lineTo(p2.x, p2.y);
+-+    ctx.lineTo(p4.x, p4.y);
+-+    ctx.lineTo(p3.x, p3.y);
+-+    ctx.closePath();
+-+    ctx.clip();
+-+
+-+    if (imageReady("road")) {
+-+      const scroll = (worldZ * 0.65 + game.distance * 0.8) % 420;
+-+      drawSprite("road", p3.x, p3.y - scroll, p4.x - p3.x, p1.y - p3.y + 500);
+-+    } else {
+-+      const stripe = (Math.floor(worldZ / config.segmentLength) % 2) === 0;
+-+      ctx.fillStyle = stripe ? "#3d3b2e" : "#4f4d3d";
+-+      ctx.fillRect(p3.x, p3.y, p4.x - p3.x, p1.y - p3.y + 1);
+-     }
+-+    ctx.restore();
+- 
+--    if(o.z < -200) obstacles.splice(i,1);
+--
+--  });
+-+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+-+    ctx.beginPath();
+-+    ctx.moveTo((p1.x * 2 + p2.x) / 3, p1.y);
+-+    ctx.lineTo((p3.x * 2 + p4.x) / 3, p3.y);
+-+    ctx.moveTo((p1.x + p2.x * 2) / 3, p1.y);
+-+    ctx.lineTo((p3.x + p4.x * 2) / 3, p3.y);
+-+    ctx.stroke();
+-+  }
+- }
+- 
+--/* =========================
+--   CONTROLS
+--========================= */
+-+function drawEntity(entity) {
+-+  const relZ = entity.worldZ - game.distance;
+-+  const p = project(laneOffset(entity.lane), relZ);
+- 
+--document.addEventListener("keydown", e=>{
+--  if(e.code==="ArrowLeft" && player.lane>0) player.lane--;
+--  if(e.code==="ArrowRight" && player.lane<2) player.lane++;
+--  if(e.code==="Space" && player.grounded){
+--    player.velocityY = player.jumpPower;
+--    player.grounded=false;
+-+  if (entity.type === "coin") {
+-+    const s = Math.max(16, p.scale * 105);
+-+    drawSprite("coin", p.x - s * 0.5, p.y - s * 1.1, s, s, "#ffc94a");
+-+    return;
+-+  }
+-+
+-+  if (entity.type === "powerup") {
+-+    const s = Math.max(22, p.scale * 120);
+-+    drawSprite(entity.variant, p.x - s * 0.5, p.y - s * 1.15, s, s, "#4bd2c0");
+-+    return;
+-   }
+--});
+- 
+--/* =========================
+--   GAME LOOP
+--========================= */
+-+  const w = Math.max(36, p.scale * 198);
+-+  const h = Math.max(48, p.scale * 218);
+-+  drawSprite(entity.variant, p.x - w * 0.5, p.y - h * 1.02, w, h, "#2b7f3c");
+-+}
+- 
+--let spawnTimer = 0;
+-+function drawPlayer() {
+-+  const p = project(laneOffset(player.laneVisual), config.playerWorldZ);
+-+  const w = 92;
+-+  const h = 112;
+-+  const y = p.y - h + player.y;
+-+
+-+  ctx.save();
+-+  if (player.invulnTime > 0 && Math.floor(player.invulnTime * 18) % 2 === 0) ctx.globalAlpha = 0.45;
+-+  if (game.shieldTime > 0) {
+-+    ctx.strokeStyle = "rgba(117, 197, 255, 0.75)";
+-+    ctx.lineWidth = 4;
+-+    ctx.beginPath();
+-+    ctx.arc(p.x, p.y - 50 + player.y, 46, 0, Math.PI * 2);
+-+    ctx.stroke();
+-+  }
+-+  drawSprite("player", p.x - w * 0.5, y, w, h, "#f24c4c");
+-+  ctx.restore();
+-+}
+- 
+--function loop(){
+-+function drawHud() {
+-+  ctx.fillStyle = "rgba(0,0,0,0.36)";
+-+  ctx.fillRect(16, 16, 340, 126);
+-+  ctx.fillStyle = "#f3f6f4";
+-+  ctx.font = "600 20px Inter, sans-serif";
+-+  ctx.fillText(`Score: ${Math.floor(game.score)}`, 28, 44);
+-+  ctx.fillText(`Best: ${game.best}`, 28, 70);
+-+  ctx.fillText(`Coins: ${game.coins}`, 28, 96);
+-+
+-+  ctx.font = "600 17px Inter, sans-serif";
+-+  ctx.fillStyle = "#8efcc8";
+-+  ctx.fillText(`Magnet: ${game.magnetTime > 0 ? game.magnetTime.toFixed(1) + "s" : "off"}`, 190, 70);
+-+  ctx.fillStyle = "#8fd1ff";
+-+  ctx.fillText(`Shield: ${game.shieldTime > 0 ? game.shieldTime.toFixed(1) + "s" : "off"}`, 190, 96);
+-+
+-+  const failedAssets = Object.entries(imageStatus).filter(([, v]) => v === "failed").map(([k]) => k);
+-+  if (failedAssets.length > 0) {
+-+    ctx.fillStyle = "rgba(255, 180, 80, 0.9)";
+-+    ctx.font = "500 14px Inter, sans-serif";
+-+    ctx.fillText(`Missing assets: ${failedAssets.join(", ")}`, 16, canvas.height - 18);
+-+  }
+- 
+--  ctx.clearRect(0,0,canvas.width,canvas.height);
+-+  if (!game.running) {
+-+    ctx.fillStyle = "rgba(0,0,0,0.66)";
+-+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+-+    ctx.fillStyle = "#fff";
+-+    ctx.textAlign = "center";
+-+    ctx.font = "700 48px Inter, sans-serif";
+-+    ctx.fillText("Run Over", canvas.width / 2, canvas.height / 2 - 40);
+-+    ctx.font = "500 22px Inter, sans-serif";
+-+    ctx.fillText(`Final Score: ${Math.floor(game.score)}`, canvas.width / 2, canvas.height / 2 + 4);
+-+    ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 44);
+-+    ctx.textAlign = "start";
+-+  }
+-+}
+- 
+-+function draw() {
+-+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+-+  drawSky();
+-   drawRoad();
+--  updatePlayer();
+--  drawPlayer();
+--  updateObstacles();
+- 
+--  spawnTimer++;
+--  if(spawnTimer > 100){
+--    spawnObstacle();
+--    spawnTimer=0;
+--  }
+-+  const visibleEntities = entities
+-+    .filter((e) => e.worldZ - game.distance > -380 && e.worldZ - game.distance < config.drawDistance)
+-+    .sort((a, b) => b.worldZ - a.worldZ);
+-+  visibleEntities.forEach(drawEntity);
+- 
+--  score++;
+-+  drawPlayer();
+-+  drawHud();
+-+}
+- 
+--  requestAnimationFrame(loop);
+-+function frame(now) {
+-+  const dt = Math.min(0.033, (now - previousTime) / 1000);
+-+  previousTime = now;
+-+  updatePlayer(dt);
+-+  updateWorld(dt);
+-+  draw();
+-+  requestAnimationFrame(frame);
+- }
+- 
+--loop();
+-+document.addEventListener("keydown", (event) => {
+-+  if (event.code === "ArrowLeft" && game.running) {
+-+    player.laneIndex = Math.max(0, player.laneIndex - 1);
+-+  } else if (event.code === "ArrowRight" && game.running) {
+-+    player.laneIndex = Math.min(config.laneCount - 1, player.laneIndex + 1);
+-+  } else if ((event.code === "ArrowUp" || event.code === "Space") && game.running && player.grounded) {
+-+    player.velocityY = player.jumpVelocity;
+-+    player.grounded = false;
+-+  } else if (event.code === "Enter" && !game.running) {
+-+    resetGame();
+-+  }
+-+});
+-+
+-+document.addEventListener("keyup", (event) => {
+-+  if ((event.code === "ArrowUp" || event.code === "Space") && player.velocityY < 0) {
+-+    player.velocityY *= player.jumpCut;
+-+  }
+-+});
+- 
+-+loadAssets(imagePaths).then(() => {
+-+  resetGame();
+-+  requestAnimationFrame(frame);
+-+});
+- </script>
+- </body>
+- </html>
++<!DOCTYPE html>
 +<html lang="en">
- <head>
-+<meta charset="UTF-8" />
-+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
- <title>Jungle Runner Engine Rebuild</title>
- <style>
--body { margin:0; overflow:hidden; background:black; }
--canvas { display:block; margin:auto; }
-+  :root { color-scheme: dark; }
-+  * { box-sizing: border-box; }
-+  body {
-+    margin: 0;
-+    min-height: 100vh;
-+    display: grid;
-+    place-items: center;
-+    background: radial-gradient(circle at 50% 8%, #23532f, #0b120d 70%);
-+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-+  }
-+  canvas {
-+    display: block;
-+    width: min(96vw, 1200px);
-+    height: auto;
-+    border: 2px solid rgba(255,255,255,0.2);
-+    border-radius: 14px;
-+    box-shadow: 0 24px 80px rgba(0,0,0,0.62);
-+  }
- </style>
- </head>
- <body>
--<canvas id="game"></canvas>
++<head>
++  <meta charset="UTF-8" />
++  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++  <title>Jungle Runner Engine Rebuild</title>
++  <style>
++    :root { color-scheme: dark; }
++    * { box-sizing: border-box; }
++    body {
++      margin: 0;
++      min-height: 100vh;
++      display: grid;
++      place-items: center;
++      background: radial-gradient(circle at 50% 8%, #23532f, #0b120d 70%);
++      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
++    }
++    canvas {
++      display: block;
++      width: min(96vw, 1200px);
++      height: auto;
++      border: 2px solid rgba(255,255,255,0.2);
++      border-radius: 14px;
++      box-shadow: 0 24px 80px rgba(0,0,0,0.62);
++    }
++  </style>
++</head>
++<body>
 +<canvas id="game" width="960" height="540"></canvas>
- <script>
--
- const canvas = document.getElementById("game");
- const ctx = canvas.getContext("2d");
- 
--canvas.width = 800;
--canvas.height = 600;
++<script>
++const canvas = document.getElementById("game");
++const ctx = canvas.getContext("2d");
++
 +const config = {
-+  horizon: 98,
++  horizon: 110,
 +  cameraDepth: 420,
 +  roadWidth: 760,
 +  laneCount: 3,
 +  segmentLength: 120,
-+  drawDistance: 5200,
-+  initialSpeed: 450,
-+  maxSpeed: 980,
-+  accel: 92,
-+  spawnMin: 780,
-+  spawnMax: 1320,
-+  playerWorldZ: 80,
++  drawDistance: 5600,
++  initialSpeed: 260,
++  maxSpeed: 620,
++  accel: 48,
++  spawnMin: 520,
++  spawnMax: 760,
++  playerWorldZ: 300,
 +};
- 
--/* =========================
--   CAMERA + WORLD SETTINGS
--========================= */
++
 +const lanes = [-1, 0, 1];
- 
--const horizon = 150;
--const cameraDepth = 300;
--const roadWidth = 600;
--const segmentLength = 200;
 +const imagePaths = {
 +  background: "assets/background.png",
 +  road: "assets/road.png",
@@ -73,9 +654,7 @@
 +  magnet: "assets/magnet.png",
 +  shield: "assets/shield.png",
 +};
- 
--let speed = 8;
--let score = 0;
++
 +const images = {};
 +const imageStatus = {};
 +
@@ -95,10 +674,7 @@
 +  }));
 +  return Promise.all(jobs);
 +}
- 
--/* =========================
--   PLAYER (fixed depth)
--========================= */
++
 +const game = {
 +  running: true,
 +  score: 0,
@@ -106,68 +682,35 @@
 +  distance: 0,
 +  speed: config.initialSpeed,
 +  best: Number(localStorage.getItem("jungleRunnerBest") || 0),
-+  nextSpawnZ: 1400,
++  nextSpawnZ: 1200,
 +  magnetTime: 0,
 +  shieldTime: 0,
++  spawnCycle: 0,
 +};
- 
--let player = {
--  lane: 0,
--  z: 0,
++
 +const player = {
 +  laneIndex: 1,
 +  laneVisual: 0,
 +  laneSwitchSpeed: 9,
-   y: 0,
-   velocityY: 0,
--  gravity: 0.6,
--  jumpPower: -12,
--  grounded: true
++  y: 0,
++  velocityY: 0,
 +  jumpVelocity: -1060,
 +  gravity: 2500,
 +  jumpCut: 0.44,
 +  grounded: true,
 +  invulnTime: 1,
- };
- 
--const lanes = [-1, 0, 1];
++};
++
 +const entities = [];
 +let previousTime = performance.now();
- 
--/* =========================
--   OBJECTS
--========================= */
--
--let obstacles = [];
--
--/* =========================
--   SPAWN
--========================= */
--
--function spawnObstacle(){
--  obstacles.push({
--    lane: lanes[Math.floor(Math.random()*3)],
--    z: 2000
--  });
++
 +function randomRange(min, max) { return min + Math.random() * (max - min); }
 +function approach(a, b, amount) {
 +  if (a < b) return Math.min(a + amount, b);
 +  if (a > b) return Math.max(a - amount, b);
 +  return a;
- }
- 
--/* =========================
--   PERSPECTIVE FUNCTION
--========================= */
--
--function project(x, z){
--
--  const scale = cameraDepth / (cameraDepth + z);
--
--  const screenX = canvas.width/2 + x * scale;
--  const screenY = horizon + (z * scale);
--
--  return { scale, screenX, screenY };
++}
++
 +function project(worldX, relZ) {
 +  const safeZ = Math.max(relZ, -config.cameraDepth + 1);
 +  const scale = config.cameraDepth / (config.cameraDepth + safeZ);
@@ -176,71 +719,51 @@
 +    x: canvas.width * 0.5 + worldX * scale,
 +    y: config.horizon + safeZ * scale,
 +  };
- }
- 
--/* =========================
--   DRAW ROAD
--========================= */
--
--function drawRoad(){
++}
++
 +function laneOffset(laneValue) {
 +  return laneValue * (config.roadWidth / config.laneCount);
 +}
- 
--  for(let z=0; z<2000; z+=segmentLength){
++
 +function spawnEntity(type, lane, worldZ, variant = "") {
 +  entities.push({ type, lane, worldZ, variant, collected: false });
 +}
- 
--    const p1 = project(-roadWidth/2, z);
--    const p2 = project( roadWidth/2, z);
++
 +function spawnPattern() {
-+  const lane = lanes[Math.floor(Math.random() * lanes.length)];
- 
--    const p3 = project(-roadWidth/2, z+segmentLength);
--    const p4 = project( roadWidth/2, z+segmentLength);
++  const obstacleLane = lanes[Math.floor(Math.random() * lanes.length)];
 +  const obstacleRoll = Math.random();
-+  if (obstacleRoll < 0.45) spawnEntity("obstacle", lane, game.nextSpawnZ, "tree");
-+  else if (obstacleRoll < 0.75) spawnEntity("obstacle", lane, game.nextSpawnZ, "wall");
-+  else spawnEntity("obstacle", lane, game.nextSpawnZ, "gap");
- 
--    ctx.fillStyle = (Math.floor(z/segmentLength)%2===0) ? "#444" : "#555";
-+  if (Math.random() > 0.15) {
-+    const coinLane = lanes[Math.floor(Math.random() * lanes.length)];
-+    const count = Math.floor(randomRange(3, 7));
-+    for (let i = 0; i < count; i++) {
-+      spawnEntity("coin", coinLane, game.nextSpawnZ + 140 + i * 95);
-+    }
++  if (obstacleRoll < 0.45) spawnEntity("obstacle", obstacleLane, game.nextSpawnZ, "tree");
++  else if (obstacleRoll < 0.8) spawnEntity("obstacle", obstacleLane, game.nextSpawnZ, "wall");
++  else spawnEntity("obstacle", obstacleLane, game.nextSpawnZ, "gap");
++
++  // Always spawn coin trails so pickups continuously appear.
++  const coinLane = lanes[Math.floor(Math.random() * lanes.length)];
++  const count = 4 + Math.floor(Math.random() * 3);
++  for (let i = 0; i < count; i++) {
++    spawnEntity("coin", coinLane, game.nextSpawnZ + 120 + i * 88);
 +  }
- 
--    ctx.beginPath();
--    ctx.moveTo(p1.screenX, p1.screenY);
--    ctx.lineTo(p2.screenX, p2.screenY);
--    ctx.lineTo(p4.screenX, p4.screenY);
--    ctx.lineTo(p3.screenX, p3.screenY);
--    ctx.closePath();
--    ctx.fill();
-+  if (Math.random() > 0.7) {
++
++  // Spawn powerups on a regular cadence so they continuously appear.
++  game.spawnCycle += 1;
++  if (game.spawnCycle % 2 === 0) {
 +    const pLane = lanes[Math.floor(Math.random() * lanes.length)];
-+    const variant = Math.random() > 0.5 ? "magnet" : "shield";
++    const variant = game.spawnCycle % 4 === 0 ? "shield" : "magnet";
 +    spawnEntity("powerup", pLane, game.nextSpawnZ + 250, variant);
-   }
++  }
 +
 +  game.nextSpawnZ += randomRange(config.spawnMin, config.spawnMax);
- }
- 
--/* =========================
--   UPDATE PLAYER
--========================= */
++}
++
 +function resetGame() {
 +  game.running = true;
 +  game.score = 0;
 +  game.coins = 0;
 +  game.distance = 0;
 +  game.speed = config.initialSpeed;
-+  game.nextSpawnZ = 1400;
++  game.nextSpawnZ = 1200;
 +  game.magnetTime = 0;
 +  game.shieldTime = 0;
++  game.spawnCycle = 0;
 +
 +  entities.length = 0;
 +
@@ -251,32 +774,25 @@
 +  player.grounded = true;
 +  player.invulnTime = 1.2;
 +
-+  while (game.nextSpawnZ < config.drawDistance) spawnPattern();
++  while (game.nextSpawnZ < config.drawDistance + 1000) spawnPattern();
 +}
- 
--function updatePlayer(){
++
 +function updatePlayer(dt) {
 +  const laneTarget = lanes[player.laneIndex];
 +  player.laneVisual = approach(player.laneVisual, laneTarget, player.laneSwitchSpeed * dt);
- 
--  player.velocityY += player.gravity;
--  player.y += player.velocityY;
++
 +  player.velocityY += player.gravity * dt;
 +  player.y += player.velocityY * dt;
- 
--  if(player.y >= 0){
++
 +  if (player.y >= 0) {
-     player.y = 0;
-     player.velocityY = 0;
-     player.grounded = true;
-   }
++    player.y = 0;
++    player.velocityY = 0;
++    player.grounded = true;
++  }
 +
 +  player.invulnTime = Math.max(0, player.invulnTime - dt);
- }
- 
--/* =========================
--   DRAW PLAYER
--========================= */
++}
++
 +function hitObstacle(entity) {
 +  const isGap = entity.variant === "gap";
 +  const canIgnore = game.shieldTime > 0 || player.invulnTime > 0;
@@ -284,33 +800,20 @@
 +  if (isGap ? !jumped : jumped) return false;
 +  return !canIgnore;
 +}
- 
--function drawPlayer(){
++
 +function updateWorld(dt) {
 +  if (!game.running) return;
- 
--  const laneOffset = lanes[player.lane] * (roadWidth/3);
--  const p = project(laneOffset, 0);
++
 +  game.speed = Math.min(config.maxSpeed, game.speed + config.accel * dt);
 +  const dz = game.speed * dt;
 +  game.distance += dz;
 +  game.score += dz * 0.1;
 +  game.magnetTime = Math.max(0, game.magnetTime - dt);
 +  game.shieldTime = Math.max(0, game.shieldTime - dt);
- 
--  const width = 40;
--  const height = 80;
-+  const spawnTarget = game.distance + config.drawDistance;
++
++  const spawnTarget = game.distance + config.drawDistance + 1000;
 +  while (game.nextSpawnZ < spawnTarget) spawnPattern();
- 
--  ctx.fillStyle = "red";
--  ctx.fillRect(
--    p.screenX - width/2,
--    p.screenY - height + player.y,
--    width,
--    height
--  );
--}
++
 +  for (const e of entities) {
 +    if (e.collected) continue;
 +
@@ -341,22 +844,17 @@
 +      localStorage.setItem("jungleRunnerBest", String(game.best));
 +    }
 +  }
- 
--/* =========================
--   UPDATE OBSTACLES
--========================= */
++
 +  for (let i = entities.length - 1; i >= 0; i--) {
 +    const relZ = entities[i].worldZ - game.distance;
 +    if (entities[i].collected || relZ < -400) entities.splice(i, 1);
 +  }
 +}
- 
--function updateObstacles(){
++
 +function imageReady(key) {
 +  return imageStatus[key] === "loaded" && images[key] && images[key].naturalWidth > 0;
 +}
- 
--  obstacles.forEach((o,i)=>{
++
 +function drawSprite(key, x, y, w, h, fallback = "#888") {
 +  if (imageReady(key)) {
 +    ctx.drawImage(images[key], x, y, w, h);
@@ -365,8 +863,7 @@
 +    ctx.fillRect(x, y, w, h);
 +  }
 +}
- 
--    o.z -= speed;
++
 +function drawSky() {
 +  if (imageReady("background")) {
 +    drawSprite("background", 0, 0, canvas.width, canvas.height * 0.66);
@@ -380,36 +877,20 @@
 +  ctx.fillStyle = "rgba(7,14,9,0.72)";
 +  ctx.fillRect(0, config.horizon + 240, canvas.width, canvas.height);
 +}
- 
--    const laneOffset = o.lane * (roadWidth/3);
--    const p = project(laneOffset, o.z);
++
 +function drawRoad() {
 +  const startZ = Math.floor(game.distance / config.segmentLength) * config.segmentLength;
 +  const endZ = startZ + config.drawDistance;
- 
--    const size = 60 * p.scale;
++
 +  for (let worldZ = startZ; worldZ < endZ; worldZ += config.segmentLength) {
 +    const relNear = worldZ - game.distance;
 +    const relFar = worldZ + config.segmentLength - game.distance;
- 
--    ctx.fillStyle="green";
--    ctx.fillRect(
--      p.screenX - size/2,
--      p.screenY - size,
--      size,
--      size
--    );
++
 +    const p1 = project(-config.roadWidth * 0.5, relNear);
 +    const p2 = project(config.roadWidth * 0.5, relNear);
 +    const p3 = project(-config.roadWidth * 0.5, relFar);
 +    const p4 = project(config.roadWidth * 0.5, relFar);
- 
--    // Collision
--    if(o.z < 100 && o.z > -50){
--      if(o.lane === lanes[player.lane] && player.y === 0){
--        alert("Game Over! Score: "+score);
--        location.reload();
--      }
++
 +    ctx.save();
 +    ctx.beginPath();
 +    ctx.moveTo(p1.x, p1.y);
@@ -420,18 +901,27 @@
 +    ctx.clip();
 +
 +    if (imageReady("road")) {
-+      const scroll = (worldZ * 0.65 + game.distance * 0.8) % 420;
-+      drawSprite("road", p3.x, p3.y - scroll, p4.x - p3.x, p1.y - p3.y + 500);
++      // Slower perceived road scrolling.
++      const scroll = (worldZ * 0.2 + game.distance * 0.25) % 360;
++      // Rotate the road texture 180° to push a horizon-like direction.
++      const minX = Math.min(p1.x, p2.x, p3.x, p4.x);
++      const maxX = Math.max(p1.x, p2.x, p3.x, p4.x);
++      const minY = Math.min(p1.y, p2.y, p3.y, p4.y);
++      const maxY = Math.max(p1.y, p2.y, p3.y, p4.y);
++      const cx = (minX + maxX) * 0.5;
++      const cy = (minY + maxY) * 0.5;
++      const w = (maxX - minX) + 120;
++      const h = (maxY - minY) + 500;
++      ctx.translate(cx, cy);
++      ctx.rotate(Math.PI);
++      drawSprite("road", -w * 0.5, -h * 0.5 - scroll, w, h, "#4a4837");
 +    } else {
 +      const stripe = (Math.floor(worldZ / config.segmentLength) % 2) === 0;
 +      ctx.fillStyle = stripe ? "#3d3b2e" : "#4f4d3d";
 +      ctx.fillRect(p3.x, p3.y, p4.x - p3.x, p1.y - p3.y + 1);
-     }
++    }
 +    ctx.restore();
- 
--    if(o.z < -200) obstacles.splice(i,1);
--
--  });
++
 +    ctx.strokeStyle = "rgba(255,255,255,0.12)";
 +    ctx.beginPath();
 +    ctx.moveTo((p1.x * 2 + p2.x) / 3, p1.y);
@@ -440,21 +930,12 @@
 +    ctx.lineTo((p3.x + p4.x * 2) / 3, p3.y);
 +    ctx.stroke();
 +  }
- }
- 
--/* =========================
--   CONTROLS
--========================= */
++}
++
 +function drawEntity(entity) {
 +  const relZ = entity.worldZ - game.distance;
 +  const p = project(laneOffset(entity.lane), relZ);
- 
--document.addEventListener("keydown", e=>{
--  if(e.code==="ArrowLeft" && player.lane>0) player.lane--;
--  if(e.code==="ArrowRight" && player.lane<2) player.lane++;
--  if(e.code==="Space" && player.grounded){
--    player.velocityY = player.jumpPower;
--    player.grounded=false;
++
 +  if (entity.type === "coin") {
 +    const s = Math.max(16, p.scale * 105);
 +    drawSprite("coin", p.x - s * 0.5, p.y - s * 1.1, s, s, "#ffc94a");
@@ -465,18 +946,13 @@
 +    const s = Math.max(22, p.scale * 120);
 +    drawSprite(entity.variant, p.x - s * 0.5, p.y - s * 1.15, s, s, "#4bd2c0");
 +    return;
-   }
--});
- 
--/* =========================
--   GAME LOOP
--========================= */
++  }
++
 +  const w = Math.max(36, p.scale * 198);
 +  const h = Math.max(48, p.scale * 218);
 +  drawSprite(entity.variant, p.x - w * 0.5, p.y - h * 1.02, w, h, "#2b7f3c");
 +}
- 
--let spawnTimer = 0;
++
 +function drawPlayer() {
 +  const p = project(laneOffset(player.laneVisual), config.playerWorldZ);
 +  const w = 92;
@@ -495,8 +971,7 @@
 +  drawSprite("player", p.x - w * 0.5, y, w, h, "#f24c4c");
 +  ctx.restore();
 +}
- 
--function loop(){
++
 +function drawHud() {
 +  ctx.fillStyle = "rgba(0,0,0,0.36)";
 +  ctx.fillRect(16, 16, 340, 126);
@@ -512,14 +987,6 @@
 +  ctx.fillStyle = "#8fd1ff";
 +  ctx.fillText(`Shield: ${game.shieldTime > 0 ? game.shieldTime.toFixed(1) + "s" : "off"}`, 190, 96);
 +
-+  const failedAssets = Object.entries(imageStatus).filter(([, v]) => v === "failed").map(([k]) => k);
-+  if (failedAssets.length > 0) {
-+    ctx.fillStyle = "rgba(255, 180, 80, 0.9)";
-+    ctx.font = "500 14px Inter, sans-serif";
-+    ctx.fillText(`Missing assets: ${failedAssets.join(", ")}`, 16, canvas.height - 18);
-+  }
- 
--  ctx.clearRect(0,0,canvas.width,canvas.height);
 +  if (!game.running) {
 +    ctx.fillStyle = "rgba(0,0,0,0.66)";
 +    ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -533,31 +1000,21 @@
 +    ctx.textAlign = "start";
 +  }
 +}
- 
++
 +function draw() {
 +  ctx.clearRect(0, 0, canvas.width, canvas.height);
 +  drawSky();
-   drawRoad();
--  updatePlayer();
--  drawPlayer();
--  updateObstacles();
- 
--  spawnTimer++;
--  if(spawnTimer > 100){
--    spawnObstacle();
--    spawnTimer=0;
--  }
++  drawRoad();
++
 +  const visibleEntities = entities
 +    .filter((e) => e.worldZ - game.distance > -380 && e.worldZ - game.distance < config.drawDistance)
 +    .sort((a, b) => b.worldZ - a.worldZ);
 +  visibleEntities.forEach(drawEntity);
- 
--  score++;
++
 +  drawPlayer();
 +  drawHud();
 +}
- 
--  requestAnimationFrame(loop);
++
 +function frame(now) {
 +  const dt = Math.min(0.033, (now - previousTime) / 1000);
 +  previousTime = now;
@@ -565,9 +1022,8 @@
 +  updateWorld(dt);
 +  draw();
 +  requestAnimationFrame(frame);
- }
- 
--loop();
++}
++
 +document.addEventListener("keydown", (event) => {
 +  if (event.code === "ArrowLeft" && game.running) {
 +    player.laneIndex = Math.max(0, player.laneIndex - 1);
@@ -586,11 +1042,11 @@
 +    player.velocityY *= player.jumpCut;
 +  }
 +});
- 
++
 +loadAssets(imagePaths).then(() => {
 +  resetGame();
 +  requestAnimationFrame(frame);
 +});
- </script>
- </body>
- </html>
++</script>
++</body>
++</html>
