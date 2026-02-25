@@ -64,7 +64,7 @@ const player = {
   vy: 0,
   grounded: true,
   jumpVel: -1030,
-  gravity: 2500,
+  gravity: 1700,
 };
 
 const entities = [];
@@ -166,8 +166,8 @@ function drawRoad() {
 
   const topY = far.y;
   const botY = canvas.height + 10;
-  const topHalf = 28;
-  const botHalf = Math.max(Math.max(nearRight.x - canvas.width * 0.5, canvas.width * 0.5 - nearLeftX), 340);
+  const topHalf = 18;
+  const botHalf = Math.max(Math.max(nearRight.x - canvas.width * 0.5, canvas.width * 0.5 - nearLeftX), 360);
 
   ctx.save();
   ctx.beginPath();
@@ -179,11 +179,12 @@ function drawRoad() {
   ctx.clip();
 
   if (roadPattern) {
-    ctx.translate(canvas.width * 0.5, (topY + botY) * 0.5);
-    const scroll = (game.dist * 0.36) % 512;
+    const roadLeft = canvas.width * 0.5 - botHalf;
+    const roadWidth = botHalf * 2;
+    const scroll = (game.dist * 0.28) % 512;
     ctx.translate(0, scroll);
     ctx.fillStyle = roadPattern;
-    ctx.fillRect(-1100, -1400, 2200, 2800);
+    ctx.fillRect(roadLeft, topY - 1600, roadWidth, (botY - topY) + 3200);
   } else {
     const g = ctx.createLinearGradient(0, topY, 0, botY);
     g.addColorStop(0, "#5f5740");
@@ -234,8 +235,8 @@ function drawEntity(e) {
     const s = Math.max(20, p.scale * 112);
     drawImageSafe(e.variant, p.x - s / 2, p.y - s * 1.1, s, s, "#79ffe2");
   } else {
-    const w = Math.max(40, p.scale * 196);
-    const h = Math.max(54, p.scale * 222);
+    const w = Math.max(20, p.scale * 98);
+    const h = Math.max(27, p.scale * 111);
     drawImageSafe(e.variant, p.x - w / 2, p.y - h, w, h, "#2a7d3a");
   }
 }
@@ -377,4 +378,3 @@ loadAssets().then(() => {
 </script>
 </body>
 </html>
-
