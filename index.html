@@ -101,18 +101,17 @@ function addEntity(type, lane, z, variant = "") {
 }
 
 function spawnWave() {
-  const lane = cfg.laneX[Math.floor(Math.random() * 3)];
+  // Spawn entities in the middle lane so they enter from top-center and scroll downward.
+  const centerLane = 0;
   const r = Math.random();
-  addEntity("obstacle", lane, game.nextSpawn, r < 0.42 ? "tree" : (r < 0.82 ? "wall" : "gap"));
+  addEntity("obstacle", centerLane, game.nextSpawn, r < 0.42 ? "tree" : (r < 0.82 ? "wall" : "gap"));
 
-  const coinLane = cfg.laneX[Math.floor(Math.random() * 3)];
   const coinCount = 4 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < coinCount; i++) addEntity("coin", coinLane, game.nextSpawn + 120 + i * 90);
+  for (let i = 0; i < coinCount; i++) addEntity("coin", centerLane, game.nextSpawn + 120 + i * 90);
 
   game.spawnTick += 1;
   if (game.spawnTick % 2 === 0) {
-    const pLane = cfg.laneX[Math.floor(Math.random() * 3)];
-    addEntity("powerup", pLane, game.nextSpawn + 250, game.spawnTick % 4 === 0 ? "shield" : "magnet");
+    addEntity("powerup", centerLane, game.nextSpawn + 250, game.spawnTick % 4 === 0 ? "shield" : "magnet");
   }
 
   game.nextSpawn += rr(cfg.spawnGapMin, cfg.spawnGapMax);
@@ -378,3 +377,4 @@ loadAssets().then(() => {
 </script>
 </body>
 </html>
+
