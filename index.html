@@ -16,12 +16,12 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 const cfg = {
-  horizonY: 126,
+  horizonY: 132,
   cameraDepth: 430,
   roadWidth: 740,
   drawDistance: 5200,
   laneX: [-1, 0, 1],
-  playerDepth: 400,
+  playerDepth: 430,
   speedStart: 220,
   speedMax: 500,
   accel: 30,
@@ -164,8 +164,8 @@ function drawRoad() {
 
   const topY = far.y;
   const botY = canvas.height + 10;
-  const topHalf = 34;
-  const botHalf = Math.max(Math.max(nearRight.x - canvas.width * 0.5, canvas.width * 0.5 - nearLeftX), 320);
+  const topHalf = 28;
+  const botHalf = Math.max(Math.max(nearRight.x - canvas.width * 0.5, canvas.width * 0.5 - nearLeftX), 340);
 
   ctx.save();
   ctx.beginPath();
@@ -178,22 +178,39 @@ function drawRoad() {
 
   if (roadPattern) {
     ctx.translate(canvas.width * 0.5, (topY + botY) * 0.5);
-    ctx.rotate(Math.PI);
     const scroll = (game.dist * 0.23) % 512;
-    ctx.translate(0, -scroll);
+    ctx.translate(0, scroll);
     ctx.fillStyle = roadPattern;
     ctx.fillRect(-900, -1200, 1800, 2400);
   } else {
     const g = ctx.createLinearGradient(0, topY, 0, botY);
-    g.addColorStop(0, "#58523c");
-    g.addColorStop(1, "#3f3a2c");
+    g.addColorStop(0, "#5f5740");
+    g.addColorStop(1, "#3d3728");
     ctx.fillStyle = g;
     ctx.fillRect(0, topY, canvas.width, botY - topY);
   }
 
+  // Deep blend pass: merge road into background with perspective fade and side feathering.
+  const depthFade = ctx.createLinearGradient(0, topY - 8, 0, botY);
+  depthFade.addColorStop(0, "rgba(24,66,41,0.78)");
+  depthFade.addColorStop(0.2, "rgba(24,66,41,0.35)");
+  depthFade.addColorStop(0.5, "rgba(18,50,32,0.16)");
+  depthFade.addColorStop(1, "rgba(8,16,11,0.06)");
+  ctx.fillStyle = depthFade;
+  ctx.fillRect(canvas.width * 0.5 - botHalf, topY - 12, botHalf * 2, botY - topY + 20);
+
+  const sideFade = ctx.createLinearGradient(canvas.width * 0.5 - botHalf, 0, canvas.width * 0.5 + botHalf, 0);
+  sideFade.addColorStop(0, "rgba(15,36,24,0.52)");
+  sideFade.addColorStop(0.16, "rgba(15,36,24,0.18)");
+  sideFade.addColorStop(0.5, "rgba(0,0,0,0)");
+  sideFade.addColorStop(0.84, "rgba(15,36,24,0.18)");
+  sideFade.addColorStop(1, "rgba(15,36,24,0.52)");
+  ctx.fillStyle = sideFade;
+  ctx.fillRect(canvas.width * 0.5 - botHalf, topY - 12, botHalf * 2, botY - topY + 20);
+
   ctx.restore();
 
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(canvas.width * 0.5 - botHalf / 3, botY);
@@ -202,6 +219,7 @@ function drawRoad() {
   ctx.lineTo(canvas.width * 0.5 + topHalf / 3, topY);
   ctx.stroke();
 }
+
 
 function drawEntity(e) {
   const relZ = e.z - game.dist;
@@ -224,17 +242,25 @@ function drawPlayer() {
   const p = project(laneOffset(player.laneSmooth), cfg.playerDepth);
   const w = 96;
   const h = 118;
-  drawImageSafe("player", p.x - w / 2, p.y - h + player.y, w, h, "#ff5a5a");
+  const baseY = canvas.height - h - 2;
+  drawImageSafe("player", p.x - w / 2, baseY + player.y, w, h, "#ff5a5a");
 }
+
 
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,.38)";
-  ctx.fillRect(14, 14, 270, 96);
+  ctx.fillRect(14, 14, 330, 124);
   ctx.fillStyle = "#fff";
   ctx.font = "600 18px sans-serif";
   ctx.fillText(`Score: ${Math.floor(game.score)}`, 24, 42);
   ctx.fillText(`Coins: ${game.coins}`, 24, 68);
   ctx.fillText(`Speed: ${Math.floor(game.speed)}`, 24, 94);
+
+  const activePower = game.magnet > 0 || game.shield > 0;
+  const powerText = activePower
+    ? `Powerup: ${game.magnet > game.shield ? "Magnet" : "Shield"} (${Math.max(game.magnet, game.shield).toFixed(1)}s)`
+    : "Powerup: none";
+  ctx.fillText(powerText, 24, 118);
 
   if (!game.running) {
     ctx.fillStyle = "rgba(0,0,0,.65)";
