@@ -101,21 +101,29 @@ function addEntity(type, lane, z, variant = "") {
 }
 
 function spawnWave() {
-  // Spawn entities in the middle lane so they enter from top-center and scroll downward.
-  const centerLane = 0;
-  const r = Math.random();
-  addEntity("obstacle", centerLane, game.nextSpawn, r < 0.42 ? "tree" : (r < 0.82 ? "wall" : "gap"));
-
-  const coinCount = 4 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < coinCount; i++) addEntity("coin", centerLane, game.nextSpawn + 120 + i * 90);
-
   game.spawnTick += 1;
+
+  // Reduce obstacle frequency and distribute across lanes.
   if (game.spawnTick % 2 === 0) {
-    addEntity("powerup", centerLane, game.nextSpawn + 250, game.spawnTick % 4 === 0 ? "shield" : "magnet");
+    const obstacleLane = cfg.laneX[Math.floor(Math.random() * cfg.laneX.length)];
+    const r = Math.random();
+    addEntity("obstacle", obstacleLane, game.nextSpawn, r < 0.42 ? "tree" : (r < 0.82 ? "wall" : "gap"));
+  }
+
+  // Keep coin frequency similar to before.
+  const coinLane = cfg.laneX[Math.floor(Math.random() * cfg.laneX.length)];
+  const coinCount = 4 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < coinCount; i++) addEntity("coin", coinLane, game.nextSpawn + 120 + i * 90);
+
+  // Reduce powerup frequency and distribute across lanes.
+  if (game.spawnTick % 6 === 0) {
+    const powerLane = cfg.laneX[Math.floor(Math.random() * cfg.laneX.length)];
+    addEntity("powerup", powerLane, game.nextSpawn + 250, game.spawnTick % 12 === 0 ? "shield" : "magnet");
   }
 
   game.nextSpawn += rr(cfg.spawnGapMin, cfg.spawnGapMax);
 }
+
 
 function reset() {
   game.running = true;
@@ -157,6 +165,13 @@ function drawSkyAndBlend() {
   blend.addColorStop(1, "rgba(18,58,36,0.55)");
   ctx.fillStyle = blend;
   ctx.fillRect(0, cfg.horizonY - 24, canvas.width, 200);
+
+  // With road hidden, keep a perspective ground fade so entities still read as 3D depth.
+  const ground = ctx.createLinearGradient(0, cfg.horizonY + 8, 0, canvas.height);
+  ground.addColorStop(0, "rgba(16,40,26,0.10)");
+  ground.addColorStop(1, "rgba(6,12,9,0.72)");
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, cfg.horizonY + 8, canvas.width, canvas.height - cfg.horizonY);
 }
 
 function drawRoad() {
@@ -338,7 +353,6 @@ function update(dt) {
 
 function render() {
   drawSkyAndBlend();
-  drawRoad();
 
   const visible = entities
     .filter((e) => e.z - game.dist > -380 && e.z - game.dist < cfg.drawDistance)
@@ -378,4 +392,3 @@ loadAssets().then(() => {
 </script>
 </body>
 </html>
-
