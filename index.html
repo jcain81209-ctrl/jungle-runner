@@ -27,6 +27,8 @@ const cfg = {
   accel: 30,
   spawnGapMin: 500,
   spawnGapMax: 760,
+  collisionNearMin: -30,
+  collisionNearMax: 95,
 };
 
 const imgPaths = {
@@ -88,9 +90,10 @@ function rr(min, max) { return min + Math.random() * (max - min); }
 function laneOffset(v) { return v * (cfg.roadWidth / 3); }
 
 function project(worldX, relZ) {
-  const z = Math.max(relZ, -cfg.cameraDepth + 1);
+  const z = Math.max(relZ, 1);
   const s = cfg.cameraDepth / (cfg.cameraDepth + z);
-  return { x: canvas.width * 0.5 + worldX * s, y: cfg.horizonY + z * s, scale: s };
+  const y = cfg.horizonY + s * (canvas.height - cfg.horizonY);
+  return { x: canvas.width * 0.5 + worldX * s, y, scale: s };
 }
 
 function addEntity(type, lane, z, variant = "") {
@@ -178,10 +181,10 @@ function drawRoad() {
 
   if (roadPattern) {
     ctx.translate(canvas.width * 0.5, (topY + botY) * 0.5);
-    const scroll = (game.dist * 0.23) % 512;
+    const scroll = (game.dist * 0.36) % 512;
     ctx.translate(0, scroll);
     ctx.fillStyle = roadPattern;
-    ctx.fillRect(-900, -1200, 1800, 2400);
+    ctx.fillRect(-1100, -1400, 2200, 2800);
   } else {
     const g = ctx.createLinearGradient(0, topY, 0, botY);
     g.addColorStop(0, "#5f5740");
@@ -300,7 +303,7 @@ function update(dt) {
       e.lane = lerp(e.lane, player.laneSmooth, clamp(dt * 4, 0, 1));
     }
 
-    const near = relZ > cfg.playerDepth - 90 && relZ < cfg.playerDepth + 90;
+    const near = relZ > cfg.collisionNearMin && relZ < cfg.collisionNearMax;
     const laneHit = Math.abs(e.lane - player.laneSmooth) < 0.45;
     if (!near || !laneHit) continue;
 
