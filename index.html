@@ -1,1 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Jungle Runner</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<canvas id="game"></canvas>
 
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = 1280;
+canvas.height = 720;
+
+// ================= IMAGES =================
+const bg = new Image();
+bg.src = "assets/background.png";
+
+const road = new Image();
+road.src = "assets/road.png";
+
+const playerImg = new Image();
+playerImg.src = "assets/player.png";
+
+const coinImg = new Image();
+coinImg.src = "assets/coin.png";
+
+const treeImg = new Image();
+treeImg.src = "assets/tree.png";
+
+// ================= GAME STATE =================
+let lane = 1;
+let lanesX = [440, 640, 840];
+let player = {
+    x: lanesX[lane],
+    y: 520,
+    width: 120,
+    height: 200,
+    vy: 0,
+    jumping: false,
+    sliding: false
+};
+
+let bgY = 0;
+let roadY = 0;
+let speed = 6;
+let score = 0;
+let gameOver = false;
+
+let obstacles = [];
+let coins = [];
+
+// ================= CONTROLS =================
+document.addEventListener("keydown", e => {
+    if (gameOver) {
+        location.reload();
+    }
+
+    if (e.key === "ArrowLeft" && lane > 0) lane--;
+    if (e.key === "ArrowRight" && lane < 2) lane++;
+    if (e.key === "ArrowUp" && !player.jumping) {
+        player.vy = -18;
+        player.jumping = true;
+    }
+    if (e.key === "ArrowDown") {
+        player.sliding = true;
+        setTimeout(()=>player.sliding=false, 500);
+    }
+});
+
+// ================= SPAWN =================
+function spawnObstacle() {
+    let laneIndex = Math.floor(Math.random()*3);
+    obstacles.push({
+        x: lanesX[laneIndex],
+        y: -200,
+        width: 120,
+        height: 200
+    });
+}
+
+function spawnCoin() {
+    let laneIndex = Math.floor(Math.random()*3);
+    coins.push({
+        x: lanesX[laneIndex]+30,
+        y: -100,
+        size: 60
+    });
+}
+
+setInterval(spawnObstacle, 1500);
+setInterval(spawnCoin, 1000);
+
+// ================= UPDATE =================
+function update() {
+
+    if (gameOver) return;
+
+    speed += 0.001;
+    score += 1;
+
+    bgY += speed * 0.5;
+    roadY += speed;
+
+    if (bgY >= canvas.height) bgY = 0;
+    if (roadY >= canvas.height) roadY = 0;
+
+    player.x = lanesX[lane];
+
+    // Jump physics
+    player.vy += 1;
+    player.y += player.vy;
+
+    if (player.y >= 520) {
+        player.y = 520;
+        player.jumping = false;
+    }
+
+    // Obstacles
+    obstacles.forEach(o => {
+        o.y += speed;
+
+        if (
+            player.x < o.x + o.width &&
+            player.x + player.width > o.x &&
+            player.y < o.y + o.height &&
+            player.y + player.height > o.y
+        ) {
+            gameOver = true;
+        }
+    });
+
+    // Coins
+    coins.forEach((c,i) => {
+        c.y += speed;
+
+        if (
+            player.x < c.x + c.size &&
+            player.x + player.width > c.x &&
+            player.y < c.y + c.size &&
+            player.y + player.height > c.y
+        ) {
+            coins.splice(i,1);
+            score += 100;
+        }
+    });
+}
+
+// ================= DRAW =================
+function draw() {
+
+    // Background scroll
+    ctx.drawImage(bg, 0, bgY - canvas.height, canvas.width, canvas.height);
+    ctx.drawImage(bg, 0, bgY, canvas.width, canvas.height);
+
+    // Road scroll
+    ctx.drawImage(road, 390, roadY - canvas.height, 500, canvas.height);
+    ctx.drawImage(road, 390, roadY, 500, canvas.height);
+
+    // Player shadow
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(player.x+60, player.y+190, 40, 15, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Player
+    ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
+
+    // Obstacles
+    obstacles.forEach(o=>{
+        ctx.drawImage(treeImg, o.x, o.y, o.width, o.height);
+    });
+
+    // Coins
+    coins.forEach(c=>{
+        ctx.drawImage(coinImg, c.x, c.y, c.size, c.size);
+    });
+
+    // Score
+    ctx.fillStyle = "white";
+    ctx.font = "40px Arial";
+    ctx.fillText("Score: " + score, 20, 50);
+
+    if (gameOver) {
+        ctx.fillStyle = "red";
+        ctx.font = "80px Arial";
+        ctx.fillText("GAME OVER", 400, 350);
+        ctx.font = "40px Arial";
+        ctx.fillText("Press any key to restart", 430, 420);
+    }
+}
+
+// ================= LOOP =================
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+
+</script>
+</body>
+</html>
