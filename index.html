@@ -1,248 +1,150 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Jungle Runner 3D</title>
+<title>Jungle Runner</title>
 <style>
-body { margin:0; overflow:hidden; background:black; }
-canvas { display:block; }
+body { margin: 0; overflow: hidden; background: black; }
+canvas { display: block; margin: auto; }
 </style>
 </head>
 <body>
+
 <canvas id="game"></canvas>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-canvas.width = 1280;
-canvas.height = 720;
 
-// ===== LOAD IMAGES =====
-function load(src){ let i=new Image(); i.src="assets/"+src; return i; }
-const bg = load("background.png");
-const road = load("road.png");
-const playerImg = load("player.png");
-const treeImg = load("tree.png");
-const gapImg = load("gap.png");
-const wallImg = load("wall.png");
-const coinImg = load("coin.png");
+canvas.width = 800;
+canvas.height = 600;
 
-// ===== GAME VARIABLES =====
-let lane = 1;
-let playerY = 0;
-let velocityY = 0;
-let jumping = false;
-let sliding = false;
+/* =========================
+   LOAD IMAGES
+========================= */
+const roadImg = new Image();
+roadImg.src = "assets/road.png";
 
-let speed = 0.008;   // FIXED slower speed
-let distance = 0;
-let score = 0;
-let gameOver = false;
+/* =========================
+   PLAYER SETTINGS
+========================= */
+let player = {
+  lane: 1,
+  y: 450,
+  width: 60,
+  height: 80,
+  velocityY: 0,
+  gravity: 0.8,
+  jumpPower: -18,
+  grounded: true
+};
 
-let objects = [];
+/* =========================
+   ROAD SETTINGS
+========================= */
+let roadScroll = 0;
+let scrollSpeed = 4;   // Adjust this for slower/faster speed
+const roadHeight = 10000;
 
-// ===== HORIZON SETTINGS =====
-const horizon = canvas.height * 0.42;
-const roadBottomWidth = 750;
-const roadTopWidth = 250;
-
-// ===== SPAWN =====
-function spawn(){
-    let r = Math.random();
-    let type="tree";
-    if(r<0.2) type="gap";
-    else if(r<0.35) type="wall";
-    else if(r<0.55) type="coin";
-
-    objects.push({
-        lane: Math.floor(Math.random()*3),
-        z: 1.2,
-        type:type
-    });
-}
-setInterval(spawn,1200);
-
-// ===== CONTROLS =====
-document.addEventListener("keydown",e=>{
-    if(gameOver) location.reload();
-
-    if(e.key==="ArrowLeft" && lane>0) lane--;
-    if(e.key==="ArrowRight" && lane<2) lane++;
-
-    if(e.key==="ArrowUp" && !jumping){
-        velocityY = -0.35;   // FIXED stronger jump
-        jumping = true;
-    }
-
-    if(e.key==="ArrowDown"){
-        sliding = true;
-        setTimeout(()=>sliding=false,500);
-    }
+/* =========================
+   CONTROLS
+========================= */
+document.addEventListener("keydown", (e) => {
+  if (e.code === "ArrowLeft" && player.lane > 0) player.lane--;
+  if (e.code === "ArrowRight" && player.lane < 2) player.lane++;
+  if (e.code === "Space" && player.grounded) {
+    player.velocityY = player.jumpPower;
+    player.grounded = false;
+  }
 });
 
-// ===== UPDATE =====
-function update(){
-if(gameOver) return;
+/* =========================
+   DRAW ROAD (3D PERSPECTIVE)
+========================= */
+function drawRoad() {
 
-distance += speed;
-score = Math.floor(distance * 100);
+  roadScroll += scrollSpeed;
 
-// Proper jump arc
-velocityY += 0.015;
-playerY += velocityY;
+  if (roadScroll >= roadHeight)
+    roadScroll = 0;
 
-if(playerY > 0){
-    playerY = 0;
-    velocityY = 0;
-    jumping = false;
-}
-
-// Update objects
-objects.forEach((o,i)=>{
-    o.z -= speed;
-
-    if(o.z <= 0) objects.splice(i,1);
-
-    if(o.z < 0.12 && o.lane === lane){
-
-        if(o.type==="tree" && playerY > -0.18) gameOver = true;
-        if(o.type==="gap" && playerY > -0.05) gameOver = true;
-        if(o.type==="wall" && !sliding) gameOver = true;
-
-        if(o.type==="coin"){
-            score += 300;
-            objects.splice(i,1);
-        }
-    }
-});
-}
-
-// ===== DRAW ROAD WITH TRUE LANE PERSPECTIVE =====
-function drawRoad(){
-
-let scroll = (distance * 2000) % road.height;
-
-ctx.save();
-
-// Trapezoid clipping
-ctx.beginPath();
-ctx.moveTo(canvas.width/2 - roadBottomWidth/2, canvas.height);
-ctx.lineTo(canvas.width/2 + roadBottomWidth/2, canvas.height);
-ctx.lineTo(canvas.width/2 + roadTopWidth/2, horizon);
-ctx.lineTo(canvas.width/2 - roadTopWidth/2, horizon);
-ctx.closePath();
-ctx.clip();
-
-// Draw scrolling road
-ctx.drawImage(
-    road,
+  // Draw visible slice only
+  ctx.drawImage(
+    roadImg,
     0,
-    scroll,
-    road.width,
-    road.height - scroll,
-    canvas.width/2 - roadBottomWidth/2,
-    horizon,
-    roadBottomWidth,
-    canvas.height - horizon
-);
-
-ctx.drawImage(
-    road,
+    roadScroll,
+    800,
+    600,
     0,
     0,
-    road.width,
-    scroll,
-    canvas.width/2 - roadBottomWidth/2,
-    horizon - (scroll * ((canvas.height-horizon)/road.height)),
-    roadBottomWidth,
-    scroll * ((canvas.height-horizon)/road.height)
-);
+    800,
+    600
+  );
 
-ctx.restore();
-
-// Draw lane lines (real perspective)
-for(let i=1;i<=2;i++){
-    let t = i/3;
-
-    let bottomX = canvas.width/2 - roadBottomWidth/2 + roadBottomWidth*t;
-    let topX = canvas.width/2 - roadTopWidth/2 + roadTopWidth*t;
-
-    ctx.strokeStyle="rgba(255,255,255,0.3)";
-    ctx.lineWidth=3;
-    ctx.beginPath();
-    ctx.moveTo(bottomX,canvas.height);
-    ctx.lineTo(topX,horizon);
-    ctx.stroke();
-}
+  // Draw second slice for seamless loop
+  if (roadScroll > roadHeight - 600) {
+    ctx.drawImage(
+      roadImg,
+      0,
+      0,
+      800,
+      600 - (roadHeight - roadScroll),
+      0,
+      roadHeight - roadScroll,
+      800,
+      600 - (roadHeight - roadScroll)
+    );
+  }
 }
 
-// ===== DRAW =====
-function draw(){
+/* =========================
+   UPDATE PLAYER
+========================= */
+function updatePlayer() {
 
-ctx.clearRect(0,0,canvas.width,canvas.height);
+  player.velocityY += player.gravity;
+  player.y += player.velocityY;
 
-// Background
-ctx.drawImage(bg,0,0,canvas.width,canvas.height);
-
-// Road
-drawRoad();
-
-// Draw objects (depth sorted)
-objects.sort((a,b)=>b.z-a.z);
-
-objects.forEach(o=>{
-
-    let scale = 1/(o.z*1.8);
-
-    let laneOffset = (-1 + o.lane) * 0.5;
-    let laneWidthBottom = roadBottomWidth/3;
-    let laneWidthTop = roadTopWidth/3;
-
-    let xBottom = canvas.width/2 - roadBottomWidth/2 + laneWidthBottom*(o.lane+0.5);
-    let xTop = canvas.width/2 - roadTopWidth/2 + laneWidthTop*(o.lane+0.5);
-
-    let x = xTop + (xBottom-xTop)*(1-o.z);
-
-    let y = horizon + (1-o.z)*(canvas.height-horizon) - playerY*300;
-
-    let size = 180*scale;
-
-    let img = treeImg;
-    if(o.type==="gap") img=gapImg;
-    if(o.type==="wall") img=wallImg;
-    if(o.type==="coin") img=coinImg;
-
-    ctx.drawImage(img,x-size/2,y-size/2,size,size);
-});
-
-// Player
-ctx.drawImage(
-playerImg,
-canvas.width/2-60,
-canvas.height*0.75 - playerY*300,
-120,
-200
-);
-
-// UI
-ctx.fillStyle="white";
-ctx.font="30px Arial";
-ctx.fillText("Score: "+score,20,40);
-
-if(gameOver){
-ctx.fillStyle="red";
-ctx.font="70px Arial";
-ctx.fillText("GAME OVER",380,360);
-ctx.font="30px Arial";
-ctx.fillText("Press Any Key",520,420);
-}
+  if (player.y >= 450) {
+    player.y = 450;
+    player.velocityY = 0;
+    player.grounded = true;
+  }
 }
 
-function loop(){
-update();
-draw();
-requestAnimationFrame(loop);
+/* =========================
+   DRAW PLAYER (LANES)
+========================= */
+function drawPlayer() {
+
+  const lanePositions = [250, 400, 550];
+
+  ctx.fillStyle = "red";
+  ctx.fillRect(
+    lanePositions[player.lane] - player.width / 2,
+    player.y,
+    player.width,
+    player.height
+  );
 }
-loop();
+
+/* =========================
+   GAME LOOP
+========================= */
+function gameLoop() {
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  drawRoad();
+  updatePlayer();
+  drawPlayer();
+
+  requestAnimationFrame(gameLoop);
+}
+
+roadImg.onload = () => {
+  gameLoop();
+};
 </script>
+
 </body>
 </html>
