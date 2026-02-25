@@ -1,17 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Jungle Runner</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: black;
-        }
-        canvas {
-            display: block;
-        }
-    </style>
+<title>Jungle Runner 3D</title>
+<style>
+body { margin:0; overflow:hidden; background:black; }
+canvas { display:block; }
+</style>
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -19,197 +13,202 @@
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-
 canvas.width = 1280;
 canvas.height = 720;
 
-// ================= IMAGES =================
-const bg = new Image();
-bg.src = "assets/background.png";
+// ===== LOAD IMAGES =====
+function load(src){ let i=new Image(); i.src="assets/"+src; return i; }
+const bg = load("background.png");
+const road = load("road.png");
+const playerImg = load("player.png");
+const coinImg = load("coin.png");
+const treeImg = load("tree.png");
+const gapImg = load("gap.png");
+const wallImg = load("wall.png");
+const magnetImg = load("magnet.png");
+const shieldImg = load("shield.png");
 
-const road = new Image();
-road.src = "assets/road.png";
-
-const playerImg = new Image();
-playerImg.src = "assets/player.png";
-
-const coinImg = new Image();
-coinImg.src = "assets/coin.png";
-
-const treeImg = new Image();
-treeImg.src = "assets/tree.png";
-
-// ================= GAME STATE =================
+// ===== GAME STATE =====
 let lane = 1;
-let lanesX = [440, 640, 840];
-let player = {
-    x: lanesX[lane],
-    y: 520,
-    width: 120,
-    height: 200,
-    vy: 0,
-    jumping: false,
-    sliding: false
-};
-
-let bgY = 0;
-let roadY = 0;
-let speed = 6;
+let lanes = [-200, 0, 200];
+let player = { y:0, vy:0, jumping:false, sliding:false };
+let speed = 0.25;
+let distance = 0;
 let score = 0;
 let gameOver = false;
+let magnet = false;
+let shield = false;
+let objects = [];
 
-let obstacles = [];
-let coins = [];
+// ===== SPAWN OBJECTS =====
+function spawn(){
+    let typeChance = Math.random();
+    let type = "tree";
+    if(typeChance<0.2) type="gap";
+    else if(typeChance<0.35) type="wall";
+    else if(typeChance<0.45) type="coin";
+    else if(typeChance<0.5) type="magnet";
+    else if(typeChance<0.55) type="shield";
 
-// ================= CONTROLS =================
-document.addEventListener("keydown", e => {
-    if (gameOver) {
-        location.reload();
+    objects.push({
+        lane: Math.floor(Math.random()*3),
+        z: 1,
+        type:type
+    });
+}
+setInterval(spawn, 900);
+
+// ===== CONTROLS =====
+document.addEventListener("keydown", e=>{
+    if(gameOver) location.reload();
+    if(e.key==="ArrowLeft" && lane>0) lane--;
+    if(e.key==="ArrowRight" && lane<2) lane++;
+    if(e.key==="ArrowUp" && !player.jumping){
+        player.vy=-0.6;
+        player.jumping=true;
     }
-
-    if (e.key === "ArrowLeft" && lane > 0) lane--;
-    if (e.key === "ArrowRight" && lane < 2) lane++;
-    if (e.key === "ArrowUp" && !player.jumping) {
-        player.vy = -18;
-        player.jumping = true;
-    }
-    if (e.key === "ArrowDown") {
-        player.sliding = true;
-        setTimeout(()=>player.sliding=false, 500);
+    if(e.key==="ArrowDown"){
+        player.sliding=true;
+        setTimeout(()=>player.sliding=false,600);
     }
 });
 
-// ================= SPAWN =================
-function spawnObstacle() {
-    let laneIndex = Math.floor(Math.random()*3);
-    obstacles.push({
-        x: lanesX[laneIndex],
-        y: -200,
-        width: 120,
-        height: 200
-    });
-}
+// ===== MOBILE SWIPE =====
+let startY=null;
+canvas.addEventListener("touchstart",e=>{
+    startY=e.touches[0].clientY;
+});
+canvas.addEventListener("touchend",e=>{
+    let endY=e.changedTouches[0].clientY;
+    if(startY-endY>50 && !player.jumping){
+        player.vy=-0.6; player.jumping=true;
+    }
+    if(endY-startY>50){
+        player.sliding=true;
+        setTimeout(()=>player.sliding=false,600);
+    }
+});
 
-function spawnCoin() {
-    let laneIndex = Math.floor(Math.random()*3);
-    coins.push({
-        x: lanesX[laneIndex]+30,
-        y: -100,
-        size: 60
-    });
-}
+// ===== UPDATE =====
+function update(){
+if(gameOver) return;
 
-setInterval(spawnObstacle, 1500);
-setInterval(spawnCoin, 1000);
+speed += 0.00001;
+distance += speed;
+score = Math.floor(distance*10);
 
-// ================= UPDATE =================
-function update() {
+// Jump physics
+player.vy += 0.02;
+player.y += player.vy;
+if(player.y>0){ player.y=0; player.jumping=false; }
 
-    if (gameOver) return;
+// Update objects
+objects.forEach((o,i)=>{
+    o.z -= speed;
 
-    speed += 0.001;
-    score += 1;
-
-    bgY += speed * 0.5;
-    roadY += speed;
-
-    if (bgY >= canvas.height) bgY = 0;
-    if (roadY >= canvas.height) roadY = 0;
-
-    player.x = lanesX[lane];
-
-    // Jump physics
-    player.vy += 1;
-    player.y += player.vy;
-
-    if (player.y >= 520) {
-        player.y = 520;
-        player.jumping = false;
+    if(o.z<=0){
+        objects.splice(i,1);
     }
 
-    // Obstacles
-    obstacles.forEach(o => {
-        o.y += speed;
+    // Collision when close
+    if(o.z<0.15 && o.lane===lane){
+        if(o.type==="tree" && player.y>=-0.2 && !shield) gameOver=true;
+        if(o.type==="gap" && player.y>=-0.05 && !shield) gameOver=true;
+        if(o.type==="wall" && !player.sliding && !shield) gameOver=true;
 
-        if (
-            player.x < o.x + o.width &&
-            player.x + player.width > o.x &&
-            player.y < o.y + o.height &&
-            player.y + player.height > o.y
-        ) {
-            gameOver = true;
+        if(o.type==="coin"){
+            score+=200;
+            objects.splice(i,1);
         }
-    });
-
-    // Coins
-    coins.forEach((c,i) => {
-        c.y += speed;
-
-        if (
-            player.x < c.x + c.size &&
-            player.x + player.width > c.x &&
-            player.y < c.y + c.size &&
-            player.y + player.height > c.y
-        ) {
-            coins.splice(i,1);
-            score += 100;
+        if(o.type==="magnet"){
+            magnet=true;
+            setTimeout(()=>magnet=false,5000);
+            objects.splice(i,1);
         }
-    });
-}
-
-// ================= DRAW =================
-function draw() {
-
-    // Background scroll
-    ctx.drawImage(bg, 0, bgY - canvas.height, canvas.width, canvas.height);
-    ctx.drawImage(bg, 0, bgY, canvas.width, canvas.height);
-
-    // Road scroll
-    ctx.drawImage(road, 390, roadY - canvas.height, 500, canvas.height);
-    ctx.drawImage(road, 390, roadY, 500, canvas.height);
-
-    // Player shadow
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.beginPath();
-    ctx.ellipse(player.x+60, player.y+190, 40, 15, 0, 0, Math.PI*2);
-    ctx.fill();
-
-    // Player
-    ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
-
-    // Obstacles
-    obstacles.forEach(o=>{
-        ctx.drawImage(treeImg, o.x, o.y, o.width, o.height);
-    });
-
-    // Coins
-    coins.forEach(c=>{
-        ctx.drawImage(coinImg, c.x, c.y, c.size, c.size);
-    });
-
-    // Score
-    ctx.fillStyle = "white";
-    ctx.font = "40px Arial";
-    ctx.fillText("Score: " + score, 20, 50);
-
-    if (gameOver) {
-        ctx.fillStyle = "red";
-        ctx.font = "80px Arial";
-        ctx.fillText("GAME OVER", 400, 350);
-        ctx.font = "40px Arial";
-        ctx.fillText("Press any key to restart", 430, 420);
+        if(o.type==="shield"){
+            shield=true;
+            setTimeout(()=>shield=false,5000);
+            objects.splice(i,1);
+        }
     }
+
+    // Magnet effect
+    if(magnet && o.type==="coin" && o.z<0.5){
+        o.lane=lane;
+    }
+});
 }
 
-// ================= LOOP =================
-function gameLoop() {
-    update();
-    draw();
-    requestAnimationFrame(gameLoop);
+// ===== DRAW =====
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+// Background
+ctx.drawImage(bg,0,0,canvas.width,canvas.height);
+
+// Road perspective
+for(let i=0;i<100;i++){
+    let scale=1/(i*0.02+1);
+    let y=canvas.height*0.6 + i*8;
+    ctx.drawImage(road,
+        canvas.width/2 - 300*scale,
+        y,
+        600*scale,
+        8);
 }
 
-gameLoop();
+// Draw objects
+objects.forEach(o=>{
+    let scale=1/(o.z*3+1);
+    let x=canvas.width/2 + lanes[o.lane]*scale;
+    let y=canvas.height*0.65 - player.y*200 + (1-o.z)*400;
+    let size=200*scale;
 
+    let img=treeImg;
+    if(o.type==="gap") img=gapImg;
+    if(o.type==="wall") img=wallImg;
+    if(o.type==="coin") img=coinImg;
+    if(o.type==="magnet") img=magnetImg;
+    if(o.type==="shield") img=shieldImg;
+
+    ctx.drawImage(img,x-size/2,y-size/2,size,size);
+});
+
+// Player (fixed front)
+ctx.drawImage(playerImg,
+canvas.width/2-60,
+canvas.height*0.7 - player.y*200,
+120,
+200);
+
+// UI
+ctx.fillStyle="white";
+ctx.font="30px Arial";
+ctx.fillText("Score: "+score,20,40);
+
+if(shield){
+ctx.fillStyle="cyan";
+ctx.fillText("SHIELD",20,80);
+}
+
+if(magnet){
+ctx.fillStyle="yellow";
+ctx.fillText("MAGNET",20,120);
+}
+
+if(gameOver){
+ctx.fillStyle="red";
+ctx.font="80px Arial";
+ctx.fillText("GAME OVER",350,350);
+}
+}
+
+function loop(){
+update();
+draw();
+requestAnimationFrame(loop);
+}
+loop();
 </script>
 </body>
 </html>
