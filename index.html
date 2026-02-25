@@ -30,14 +30,13 @@ const shieldImg = load("shield.png");
 
 // ===== GAME STATE =====
 let lane = 1;
-let lanes = [-250, 0, 250];
+let lanes = [-1, 0, 1]; // relative lane positions
 let player = { y:0, vy:0, jumping:false, sliding:false };
-let speed = 0.25;
+let baseSpeed = 0.12; // slower
+let speed = baseSpeed;
 let distance = 0;
 let score = 0;
 let gameOver = false;
-let magnet = false;
-let shield = false;
 let objects = [];
 
 // ===== SPAWN =====
@@ -47,16 +46,14 @@ function spawn(){
     if(r<0.2) type="gap";
     else if(r<0.35) type="wall";
     else if(r<0.5) type="coin";
-    else if(r<0.6) type="magnet";
-    else if(r<0.7) type="shield";
 
     objects.push({
         lane: Math.floor(Math.random()*3),
-        z: 1.2,
+        z: 1.3,
         type:type
     });
 }
-setInterval(spawn, 900);
+setInterval(spawn, 1100);
 
 // ===== CONTROLS =====
 document.addEventListener("keydown", e=>{
@@ -64,26 +61,10 @@ document.addEventListener("keydown", e=>{
     if(e.key==="ArrowLeft" && lane>0) lane--;
     if(e.key==="ArrowRight" && lane<2) lane++;
     if(e.key==="ArrowUp" && !player.jumping){
-        player.vy=-0.6;
+        player.vy=-0.9; // stronger jump
         player.jumping=true;
     }
     if(e.key==="ArrowDown"){
-        player.sliding=true;
-        setTimeout(()=>player.sliding=false,600);
-    }
-});
-
-// ===== MOBILE =====
-let startY=null;
-canvas.addEventListener("touchstart",e=>{
-    startY=e.touches[0].clientY;
-});
-canvas.addEventListener("touchend",e=>{
-    let endY=e.changedTouches[0].clientY;
-    if(startY-endY>50 && !player.jumping){
-        player.vy=-0.6; player.jumping=true;
-    }
-    if(endY-startY>50){
         player.sliding=true;
         setTimeout(()=>player.sliding=false,600);
     }
@@ -93,44 +74,41 @@ canvas.addEventListener("touchend",e=>{
 function update(){
 if(gameOver) return;
 
-speed += 0.00002;
+// Smooth speed increase
+speed += 0.000005;
 distance += speed;
 score = Math.floor(distance*10);
 
 // Jump physics
-player.vy += 0.02;
+player.vy += 0.04;
 player.y += player.vy;
-if(player.y>0){ player.y=0; player.jumping=false; }
+
+if(player.y > 0){
+    player.y = 0;
+    player.jumping = false;
+}
 
 // Update objects
 objects.forEach((o,i)=>{
     o.z -= speed;
 
-    if(o.z<=0) objects.splice(i,1);
+    if(o.z <= 0) objects.splice(i,1);
 
-    if(o.z<0.18 && o.lane===lane){
-        if(o.type==="tree" && player.y>-0.15 && !shield) gameOver=true;
-        if(o.type==="gap" && player.y>-0.05 && !shield) gameOver=true;
-        if(o.type==="wall" && !player.sliding && !shield) gameOver=true;
+    if(o.z < 0.15 && o.lane === lane){
 
-        if(o.type==="coin"){
-            score+=200;
+        if(o.type === "tree" && player.y > -0.35)
+            gameOver = true;
+
+        if(o.type === "gap" && player.y > -0.05)
+            gameOver = true;
+
+        if(o.type === "wall" && !player.sliding)
+            gameOver = true;
+
+        if(o.type === "coin"){
+            score += 200;
             objects.splice(i,1);
         }
-        if(o.type==="magnet"){
-            magnet=true;
-            setTimeout(()=>magnet=false,5000);
-            objects.splice(i,1);
-        }
-        if(o.type==="shield"){
-            shield=true;
-            setTimeout(()=>shield=false,5000);
-            objects.splice(i,1);
-        }
-    }
-
-    if(magnet && o.type==="coin" && o.z<0.6){
-        o.lane=lane;
     }
 });
 }
@@ -142,19 +120,15 @@ ctx.clearRect(0,0,canvas.width,canvas.height);
 // Background
 ctx.drawImage(bg,0,0,canvas.width,canvas.height);
 
-// ===== 3D ROAD FIXED =====
-let horizonY = canvas.height * 0.45;
-let roadBottomWidth = 700;
-let roadTopWidth = 220;
+// ===== ROAD PERSPECTIVE =====
+let horizonY = canvas.height * 0.42;
+let roadBottomWidth = 750;
+let roadTopWidth = 250;
 let roadHeight = canvas.height - horizonY;
-let roadX = canvas.width/2 - roadBottomWidth/2;
 
-// Scroll texture
-let scroll = (distance * 800) % road.height;
+let scroll = (distance * 600) % road.height;
 
 ctx.save();
-
-// Trapezoid clip
 ctx.beginPath();
 ctx.moveTo(canvas.width/2 - roadBottomWidth/2, canvas.height);
 ctx.lineTo(canvas.width/2 + roadBottomWidth/2, canvas.height);
@@ -163,14 +137,13 @@ ctx.lineTo(canvas.width/2 - roadTopWidth/2, horizonY);
 ctx.closePath();
 ctx.clip();
 
-// Draw road twice for seamless scroll
 ctx.drawImage(
     road,
     0,
     scroll,
     road.width,
     road.height - scroll,
-    roadX,
+    canvas.width/2 - roadBottomWidth/2,
     horizonY,
     roadBottomWidth,
     roadHeight
@@ -182,7 +155,7 @@ ctx.drawImage(
     0,
     road.width,
     scroll,
-    roadX,
+    canvas.width/2 - roadBottomWidth/2,
     horizonY - (scroll * (roadHeight / road.height)),
     roadBottomWidth,
     scroll * (roadHeight / road.height)
@@ -194,17 +167,16 @@ ctx.restore();
 objects.sort((a,b)=>b.z-a.z);
 
 objects.forEach(o=>{
-    let scale = 1/(o.z*2);
-    let x = canvas.width/2 + lanes[o.lane]*scale;
-    let y = horizonY + (1-o.z)*roadHeight - player.y*200;
+    let scale = 1/(o.z*2.2);
+    let laneWidthAtZ = roadTopWidth + (roadBottomWidth-roadTopWidth)*(1-o.z);
+    let x = canvas.width/2 + lanes[o.lane]*(laneWidthAtZ/3);
+    let y = horizonY + (1-o.z)*roadHeight - player.y*250;
     let size = 220*scale;
 
     let img = treeImg;
     if(o.type==="gap") img=gapImg;
     if(o.type==="wall") img=wallImg;
     if(o.type==="coin") img=coinImg;
-    if(o.type==="magnet") img=magnetImg;
-    if(o.type==="shield") img=shieldImg;
 
     ctx.drawImage(img,x-size/2,y-size/2,size,size);
 });
@@ -213,24 +185,15 @@ objects.forEach(o=>{
 ctx.drawImage(
 playerImg,
 canvas.width/2-60,
-canvas.height*0.75 - player.y*200,
+canvas.height*0.75 - player.y*250,
 120,
 200
 );
 
-// ===== UI =====
+// UI
 ctx.fillStyle="white";
 ctx.font="30px Arial";
 ctx.fillText("Score: "+score,20,40);
-
-if(shield){
-ctx.fillStyle="cyan";
-ctx.fillText("SHIELD ACTIVE",20,80);
-}
-if(magnet){
-ctx.fillStyle="yellow";
-ctx.fillText("MAGNET ACTIVE",20,120);
-}
 
 if(gameOver){
 ctx.fillStyle="red";
