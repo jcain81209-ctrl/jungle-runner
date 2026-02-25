@@ -16,16 +16,15 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 const cfg = {
-  horizonY: 105,
+  horizonY: 126,
   cameraDepth: 430,
   roadWidth: 740,
-  segmentLength: 120,
-  drawDistance: 5400,
+  drawDistance: 5200,
   laneX: [-1, 0, 1],
-  playerDepth: 325, // pushes player down toward the bottom
-  speedStart: 230,  // slower than before
-  speedMax: 520,
-  accel: 35,
+  playerDepth: 400,
+  speedStart: 220,
+  speedMax: 500,
+  accel: 30,
   spawnGapMin: 500,
   spawnGapMax: 760,
 };
@@ -43,6 +42,7 @@ const imgPaths = {
 };
 
 const imgs = {};
+let roadPattern = null;
 const game = {
   running: true,
   speed: cfg.speedStart,
@@ -71,7 +71,11 @@ let last = performance.now();
 function loadAssets() {
   const jobs = Object.entries(imgPaths).map(([k, src]) => new Promise((res) => {
     const i = new Image();
-    i.onload = () => { imgs[k] = i; res(); };
+    i.onload = () => {
+      imgs[k] = i;
+      if (k === "road") roadPattern = ctx.createPattern(i, "repeat-y");
+      res();
+    };
     i.onerror = () => res();
     i.src = src;
   }));
@@ -94,17 +98,14 @@ function addEntity(type, lane, z, variant = "") {
 }
 
 function spawnWave() {
-  // obstacle always
   const lane = cfg.laneX[Math.floor(Math.random() * 3)];
   const r = Math.random();
   addEntity("obstacle", lane, game.nextSpawn, r < 0.42 ? "tree" : (r < 0.82 ? "wall" : "gap"));
 
-  // coins always
   const coinLane = cfg.laneX[Math.floor(Math.random() * 3)];
   const coinCount = 4 + Math.floor(Math.random() * 3);
   for (let i = 0; i < coinCount; i++) addEntity("coin", coinLane, game.nextSpawn + 120 + i * 90);
 
-  // powerups continuous (every 2nd wave)
   game.spawnTick += 1;
   if (game.spawnTick % 2 === 0) {
     const pLane = cfg.laneX[Math.floor(Math.random() * 3)];
@@ -138,48 +139,68 @@ function drawImageSafe(key, x, y, w, h, fallback = "#555") {
   else { ctx.fillStyle = fallback; ctx.fillRect(x, y, w, h); }
 }
 
-function drawRoad() {
-  const start = Math.floor(game.dist / cfg.segmentLength) * cfg.segmentLength;
-  const end = start + cfg.drawDistance;
-
-  for (let z = start; z < end; z += cfg.segmentLength) {
-    const near = z - game.dist;
-    const far = z + cfg.segmentLength - game.dist;
-    const p1 = project(-cfg.roadWidth * 0.5, near);
-    const p2 = project(cfg.roadWidth * 0.5, near);
-    const p3 = project(-cfg.roadWidth * 0.5, far);
-    const p4 = project(cfg.roadWidth * 0.5, far);
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.lineTo(p4.x, p4.y);
-    ctx.lineTo(p3.x, p3.y);
-    ctx.closePath();
-    ctx.clip();
-
-    if (imgs.road) {
-      // slower texture flow
-      const scroll = (z * 0.18 + game.dist * 0.20) % 320;
-      // 180° rotated road texture
-      const minX = Math.min(p1.x, p2.x, p3.x, p4.x);
-      const maxX = Math.max(p1.x, p2.x, p3.x, p4.x);
-      const minY = Math.min(p1.y, p2.y, p3.y, p4.y);
-      const maxY = Math.max(p1.y, p2.y, p3.y, p4.y);
-      const w = (maxX - minX) + 130;
-      const h = (maxY - minY) + 520;
-      const cx = (minX + maxX) * 0.5;
-      const cy = (minY + maxY) * 0.5;
-      ctx.translate(cx, cy);
-      ctx.rotate(Math.PI);
-      drawImageSafe("road", -w * 0.5, -h * 0.5 - scroll, w, h, "#474333");
-    } else {
-      ctx.fillStyle = (Math.floor(z / cfg.segmentLength) % 2 === 0) ? "#3f3c2d" : "#4d4a39";
-      ctx.fillRect(p3.x, p3.y, p4.x - p3.x, p1.y - p3.y + 2);
-    }
-    ctx.restore();
+function drawSkyAndBlend() {
+  if (imgs.background) {
+    drawImageSafe("background", 0, 0, canvas.width, canvas.height);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    g.addColorStop(0, "#4fb56e");
+    g.addColorStop(1, "#143321");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+
+  const blend = ctx.createLinearGradient(0, cfg.horizonY - 24, 0, cfg.horizonY + 140);
+  blend.addColorStop(0, "rgba(18,58,36,0)");
+  blend.addColorStop(1, "rgba(18,58,36,0.55)");
+  ctx.fillStyle = blend;
+  ctx.fillRect(0, cfg.horizonY - 24, canvas.width, 200);
+}
+
+function drawRoad() {
+  const far = project(0, cfg.drawDistance);
+  const nearRight = project(cfg.roadWidth * 0.5, 0);
+  const nearLeftX = canvas.width - nearRight.x;
+
+  const topY = far.y;
+  const botY = canvas.height + 10;
+  const topHalf = 34;
+  const botHalf = Math.max(Math.max(nearRight.x - canvas.width * 0.5, canvas.width * 0.5 - nearLeftX), 320);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(canvas.width * 0.5 - topHalf, topY);
+  ctx.lineTo(canvas.width * 0.5 + topHalf, topY);
+  ctx.lineTo(canvas.width * 0.5 + botHalf, botY);
+  ctx.lineTo(canvas.width * 0.5 - botHalf, botY);
+  ctx.closePath();
+  ctx.clip();
+
+  if (roadPattern) {
+    ctx.translate(canvas.width * 0.5, (topY + botY) * 0.5);
+    ctx.rotate(Math.PI);
+    const scroll = (game.dist * 0.23) % 512;
+    ctx.translate(0, -scroll);
+    ctx.fillStyle = roadPattern;
+    ctx.fillRect(-900, -1200, 1800, 2400);
+  } else {
+    const g = ctx.createLinearGradient(0, topY, 0, botY);
+    g.addColorStop(0, "#58523c");
+    g.addColorStop(1, "#3f3a2c");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, topY, canvas.width, botY - topY);
+  }
+
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width * 0.5 - botHalf / 3, botY);
+  ctx.lineTo(canvas.width * 0.5 - topHalf / 3, topY);
+  ctx.moveTo(canvas.width * 0.5 + botHalf / 3, botY);
+  ctx.lineTo(canvas.width * 0.5 + topHalf / 3, topY);
+  ctx.stroke();
 }
 
 function drawEntity(e) {
@@ -193,22 +214,22 @@ function drawEntity(e) {
     const s = Math.max(20, p.scale * 112);
     drawImageSafe(e.variant, p.x - s / 2, p.y - s * 1.1, s, s, "#79ffe2");
   } else {
-    const w = Math.max(36, p.scale * 182);
-    const h = Math.max(44, p.scale * 206);
+    const w = Math.max(40, p.scale * 196);
+    const h = Math.max(54, p.scale * 222);
     drawImageSafe(e.variant, p.x - w / 2, p.y - h, w, h, "#2a7d3a");
   }
 }
 
 function drawPlayer() {
   const p = project(laneOffset(player.laneSmooth), cfg.playerDepth);
-  const w = 94;
-  const h = 115;
+  const w = 96;
+  const h = 118;
   drawImageSafe("player", p.x - w / 2, p.y - h + player.y, w, h, "#ff5a5a");
 }
 
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,.38)";
-  ctx.fillRect(14, 14, 250, 96);
+  ctx.fillRect(14, 14, 270, 96);
   ctx.fillStyle = "#fff";
   ctx.font = "600 18px sans-serif";
   ctx.fillText(`Score: ${Math.floor(game.score)}`, 24, 42);
@@ -249,9 +270,11 @@ function update(dt) {
     if (e.dead) continue;
     const relZ = e.z - game.dist;
 
-    if (e.type === "coin" && game.magnet > 0 && relZ < 450) e.lane = lerp(e.lane, player.laneSmooth, clamp(dt * 4, 0, 1));
+    if (e.type === "coin" && game.magnet > 0 && relZ < 450) {
+      e.lane = lerp(e.lane, player.laneSmooth, clamp(dt * 4, 0, 1));
+    }
 
-    const near = relZ > cfg.playerDepth - 78 && relZ < cfg.playerDepth + 68;
+    const near = relZ > cfg.playerDepth - 90 && relZ < cfg.playerDepth + 90;
     const laneHit = Math.abs(e.lane - player.laneSmooth) < 0.45;
     if (!near || !laneHit) continue;
 
@@ -263,34 +286,33 @@ function update(dt) {
       e.dead = true;
       if (e.variant === "magnet") game.magnet = 7;
       if (e.variant === "shield") game.shield = 6;
-    } else {
-      const gapNeedsJump = e.variant === "gap";
-      const jumping = player.y < -30;
-      const hit = gapNeedsJump ? !jumping : jumping ? false : true;
-      if (hit && game.shield <= 0) game.running = false;
+    } else if (e.type === "obstacle") {
+      let hit = false;
+      if (e.variant === "gap") hit = player.y > -40;
+      else hit = player.y > -25;
+      if (hit) {
+        if (game.shield > 0) {
+          game.shield = 0;
+          e.dead = true;
+        } else {
+          game.running = false;
+        }
+      }
     }
   }
 
   for (let i = entities.length - 1; i >= 0; i--) {
     const relZ = entities[i].z - game.dist;
-    if (entities[i].dead || relZ < -380) entities.splice(i, 1);
+    if (entities[i].dead || relZ < -420) entities.splice(i, 1);
   }
 }
 
 function render() {
-  if (imgs.background) drawImageSafe("background", 0, 0, canvas.width, canvas.height * 0.66);
-  else {
-    const g = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.8);
-    g.addColorStop(0, "#4fb56e");
-    g.addColorStop(1, "#143321");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
+  drawSkyAndBlend();
   drawRoad();
 
   const visible = entities
-    .filter(e => e.z - game.dist > -350 && e.z - game.dist < cfg.drawDistance)
+    .filter((e) => e.z - game.dist > -380 && e.z - game.dist < cfg.drawDistance)
     .sort((a, b) => b.z - a.z);
 
   for (const e of visible) drawEntity(e);
