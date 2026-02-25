@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Jungle Runner</title>
+<title>Jungle Runner Pro</title>
 <style>
 body { margin: 0; overflow: hidden; background: black; }
-canvas { display: block; margin: auto; }
+canvas { display: block; margin: auto; background: black; }
 </style>
 </head>
 <body>
@@ -24,26 +24,45 @@ canvas.height = 600;
 const roadImg = new Image();
 roadImg.src = "assets/road.png";
 
+const treeImg = new Image();
+treeImg.src = "assets/tree.png";
+
+const coinImg = new Image();
+coinImg.src = "assets/coin.png";
+
+const powerImg = new Image();
+powerImg.src = "assets/powerup.png";
+
 /* =========================
-   PLAYER SETTINGS
+   GAME VARIABLES
+========================= */
+let scrollSpeed = 3;
+let roadScroll = 0;
+const roadHeight = 10000;
+
+let score = 0;
+let shieldActive = false;
+let shieldTimer = 0;
+
+/* =========================
+   PLAYER
 ========================= */
 let player = {
   lane: 1,
-  y: 450,
+  baseY: 480,
+  y: 480,
   width: 60,
   height: 80,
   velocityY: 0,
-  gravity: 0.8,
-  jumpPower: -18,
+  gravity: 0.9,
+  jumpPower: -20,
   grounded: true
 };
 
 /* =========================
-   ROAD SETTINGS
+   LANE POSITIONS
 ========================= */
-let roadScroll = 0;
-let scrollSpeed = 4;   // Adjust this for slower/faster speed
-const roadHeight = 10000;
+const lanePositions = [250, 400, 550];
 
 /* =========================
    CONTROLS
@@ -58,16 +77,37 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* =========================
-   DRAW ROAD (3D PERSPECTIVE)
+   OBSTACLES + POWERUPS
+========================= */
+let obstacles = [];
+let items = [];
+
+function spawnObjects() {
+  if (Math.random() < 0.03) {
+    obstacles.push({
+      lane: Math.floor(Math.random() * 3),
+      z: 1200
+    });
+  }
+
+  if (Math.random() < 0.02) {
+    items.push({
+      lane: Math.floor(Math.random() * 3),
+      z: 1200,
+      type: Math.random() < 0.5 ? "coin" : "power"
+    });
+  }
+}
+
+/* =========================
+   3D PERSPECTIVE DRAW
 ========================= */
 function drawRoad() {
 
   roadScroll += scrollSpeed;
+  if (roadScroll >= roadHeight) roadScroll = 0;
 
-  if (roadScroll >= roadHeight)
-    roadScroll = 0;
-
-  // Draw visible slice only
+  // Draw road slice
   ctx.drawImage(
     roadImg,
     0,
@@ -79,21 +119,6 @@ function drawRoad() {
     800,
     600
   );
-
-  // Draw second slice for seamless loop
-  if (roadScroll > roadHeight - 600) {
-    ctx.drawImage(
-      roadImg,
-      0,
-      0,
-      800,
-      600 - (roadHeight - roadScroll),
-      0,
-      roadHeight - roadScroll,
-      800,
-      600 - (roadHeight - roadScroll)
-    );
-  }
 }
 
 /* =========================
@@ -104,27 +129,113 @@ function updatePlayer() {
   player.velocityY += player.gravity;
   player.y += player.velocityY;
 
-  if (player.y >= 450) {
-    player.y = 450;
+  if (player.y >= player.baseY) {
+    player.y = player.baseY;
     player.velocityY = 0;
     player.grounded = true;
   }
 }
 
 /* =========================
-   DRAW PLAYER (LANES)
+   DRAW PLAYER
 ========================= */
 function drawPlayer() {
-
-  const lanePositions = [250, 400, 550];
-
-  ctx.fillStyle = "red";
+  ctx.fillStyle = shieldActive ? "cyan" : "red";
   ctx.fillRect(
     lanePositions[player.lane] - player.width / 2,
     player.y,
     player.width,
     player.height
   );
+}
+
+/* =========================
+   DRAW OBSTACLES (SCALED)
+========================= */
+function updateObstacles() {
+
+  obstacles.forEach((obs, index) => {
+
+    obs.z -= scrollSpeed * 4;
+
+    const scale = Math.max(0.3, 1 - obs.z / 1200);
+    const size = 120 * scale;
+
+    const x = lanePositions[obs.lane] - size / 2;
+    const y = 500 - (obs.z * 0.3);
+
+    ctx.drawImage(treeImg, x, y, size, size);
+
+    // Collision
+    if (
+      Math.abs(lanePositions[player.lane] - lanePositions[obs.lane]) < 40 &&
+      player.y + player.height > y &&
+      player.y < y + size
+    ) {
+      if (!shieldActive) {
+        alert("Game Over! Score: " + score);
+        document.location.reload();
+      }
+    }
+
+    if (obs.z <= 0) obstacles.splice(index, 1);
+  });
+}
+
+/* =========================
+   DRAW ITEMS
+========================= */
+function updateItems() {
+
+  items.forEach((item, index) => {
+
+    item.z -= scrollSpeed * 4;
+
+    const scale = Math.max(0.3, 1 - item.z / 1200);
+    const size = 60 * scale;
+
+    const x = lanePositions[item.lane] - size / 2;
+    const y = 500 - (item.z * 0.3);
+
+    if (item.type === "coin")
+      ctx.drawImage(coinImg, x, y, size, size);
+    else
+      ctx.drawImage(powerImg, x, y, size, size);
+
+    if (
+      Math.abs(lanePositions[player.lane] - lanePositions[item.lane]) < 40 &&
+      player.y + player.height > y &&
+      player.y < y + size
+    ) {
+      if (item.type === "coin") score += 10;
+      if (item.type === "power") {
+        shieldActive = true;
+        shieldTimer = 300;
+      }
+      items.splice(index, 1);
+    }
+
+    if (item.z <= 0) items.splice(index, 1);
+  });
+}
+
+/* =========================
+   POWERUP TIMER
+========================= */
+function updatePower() {
+  if (shieldActive) {
+    shieldTimer--;
+    if (shieldTimer <= 0) shieldActive = false;
+  }
+}
+
+/* =========================
+   UI
+========================= */
+function drawUI() {
+  ctx.fillStyle = "white";
+  ctx.font = "20px Arial";
+  ctx.fillText("Score: " + score, 20, 30);
 }
 
 /* =========================
@@ -135,8 +246,15 @@ function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   drawRoad();
+  spawnObjects();
   updatePlayer();
+  updateObstacles();
+  updateItems();
+  updatePower();
   drawPlayer();
+  drawUI();
+
+  score += 0.1;
 
   requestAnimationFrame(gameLoop);
 }
